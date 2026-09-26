@@ -1,0 +1,34 @@
+services:
+  copy-watch:
+    image: ${TAKUSDT_IMAGE:-ghcr.io/jiemo9527/takusdt:latest}
+    build: .
+    container_name: binance-copy-watch
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /data
+      COOKIE_SECURE: ${COOKIE_SECURE:-1}
+      DASHBOARD_BASE_URL: ${DASHBOARD_BASE_URL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      TRADE_ALERTS_ENABLED: ${TRADE_ALERTS_ENABLED:-0}
+    expose:
+      - "8000"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  nginx:
+    image: nginx:alpine
+    container_name: binance-copy-watch-proxy
+    restart: unless-stopped
+    depends_on:
+      copy-watch:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro

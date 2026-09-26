@@ -1,0 +1,1251 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>策略监控中心</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17212f;
+      --muted: #6d7a8e;
+      --canvas: #f4f6fa;
+      --surface: #ffffff;
+      --surface-muted: #f8fafc;
+      --line: #e4e9f1;
+      --primary: #315efb;
+      --primary-dark: #2449cb;
+      --success: #139b68;
+      --warning: #ad7413;
+      --danger: #d04e59;
+      --sidebar: #101b2c;
+      --sidebar-muted: #9cacbf;
+      --shadow: 0 10px 32px rgb(25 47 79 / .07);
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; color: var(--ink); background: var(--canvas); font: 14px/1.5 Inter, "Segoe UI", "Microsoft YaHei", sans-serif; }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: wait; opacity: .58; }
+    a { color: inherit; }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: clamp(25px, 3vw, 34px); letter-spacing: -.04em; }
+    h2 { font-size: 18px; letter-spacing: -.02em; }
+    h3 { font-size: 14px; }
+    .hidden { display: none !important; }
+    .muted { color: var(--muted); }
+    .small { color: var(--muted); font-size: 12px; }
+
+    .login-page { display: grid; min-height: 100vh; grid-template-columns: minmax(0, 1.1fr) minmax(390px, .9fr); background: #0e1930; }
+    .login-intro { position: relative; display: grid; align-content: center; min-height: 100%; padding: clamp(48px, 8vw, 120px); overflow: hidden; color: #f5f8ff; background: linear-gradient(135deg, #172c5c 0%, #142345 57%, #0e1930 100%); }
+    .login-intro::before, .login-intro::after { position: absolute; border: 1px solid rgb(155 188 255 / .18); border-radius: 50%; content: ""; }
+    .login-intro::before { width: 440px; height: 440px; top: -210px; right: -130px; }
+    .login-intro::after { width: 680px; height: 680px; right: 8%; bottom: -470px; }
+    .login-intro > * { position: relative; z-index: 1; }
+    .brand-mark { display: inline-grid; width: 40px; height: 40px; place-items: center; margin-bottom: 28px; border-radius: 12px; color: #fff; background: var(--primary); box-shadow: 0 8px 24px rgb(49 94 251 / .4); font-weight: 800; }
+    .eyebrow { color: #9eb5ff; font: 700 11px/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .15em; }
+    .login-intro h1 { max-width: 560px; margin: 14px 0; font-size: clamp(36px, 5vw, 60px); line-height: 1.08; }
+    .login-intro p { max-width: 490px; color: #b9c7df; font-size: 16px; }
+    .intro-points { display: grid; gap: 13px; margin-top: 40px; color: #cbd7ec; }
+    .intro-points span::before { display: inline-block; width: 19px; color: #8fb0ff; content: "✓"; }
+    .login-panel { display: grid; align-content: center; padding: clamp(28px, 7vw, 86px); background: #fff; }
+    .login-card { width: min(100%, 390px); margin: auto; }
+    .login-card h2 { margin: 16px 0 7px; font-size: 28px; }
+    .login-form { display: grid; gap: 16px; margin-top: 30px; }
+    .login-help { margin-top: 22px; padding: 13px 14px; border-left: 3px solid #b8c7ff; color: #5e6f87; background: #f4f7ff; font-size: 12px; }
+    .auth-loading { display: grid; min-height: 100vh; place-items: center; color: #dce5f4; background: #0e1930; }
+    .auth-loading span { display: grid; gap: 10px; place-items: center; color: #9cacbf; font-size: 12px; }
+
+    .app-shell { display: grid; min-height: 100vh; grid-template-columns: 248px minmax(0, 1fr); }
+    .sidebar { position: sticky; top: 0; display: flex; height: 100vh; flex-direction: column; padding: 22px 14px; color: #dce5f4; background: var(--sidebar); }
+    .sidebar-brand { display: flex; align-items: center; gap: 11px; padding: 0 10px 24px; }
+    .sidebar-brand .brand-mark { flex: 0 0 auto; width: 32px; height: 32px; margin: 0; border-radius: 9px; font-size: 12px; }
+    .sidebar-brand strong { display: block; color: #fff; font-size: 14px; }
+    .sidebar-brand span { display: block; color: var(--sidebar-muted); font-size: 11px; }
+    .nav-label { padding: 14px 11px 7px; color: #74869c; font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+    .nav-button { display: flex; width: 100%; align-items: center; gap: 11px; border: 0; border-radius: 8px; padding: 10px 11px; color: var(--sidebar-muted); background: transparent; text-align: left; }
+    .nav-button:hover { color: #eff4ff; background: #1b2a40; }
+    .nav-button.active { color: #fff; background: #294675; box-shadow: inset 3px 0 0 #7b9aff; }
+    .nav-icon { display: grid; width: 19px; height: 19px; place-items: center; color: #9eb5ff; font-size: 15px; }
+    .sidebar-footer { margin-top: auto; padding: 15px 11px 3px; border-top: 1px solid #263750; color: #71839a; font-size: 11px; }
+
+    .main-area { min-width: 0; }
+    .topbar { display: flex; min-height: 74px; align-items: center; justify-content: space-between; gap: 20px; padding: 16px clamp(20px, 4vw, 46px); border-bottom: 1px solid var(--line); background: rgb(255 255 255 / .92); }
+    .breadcrumb { color: var(--muted); font-size: 12px; }
+    .topbar h1 { margin-top: 2px; font-size: 22px; }
+    .account-box { display: flex; align-items: center; gap: 11px; }
+    .avatar { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; color: #2449cb; background: #e7edff; font-weight: 800; }
+    .content { width: min(1440px, 100%); margin: 0 auto; padding: clamp(20px, 3vw, 36px) clamp(18px, 4vw, 46px) 50px; }
+    .app-footer { padding: 20px clamp(18px, 4vw, 46px) 28px; color: var(--muted); font-size: 12px; text-align: center; }
+    .app-footer a { color: var(--primary); text-decoration: none; }
+    .app-footer a:hover { text-decoration: underline; }
+    .view { display: none; animation: appear .18s ease-out; }
+    .view.active { display: block; }
+    @keyframes appear { from { opacity: .15; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+    .page-header { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+    .page-header p { margin-top: 5px; color: var(--muted); }
+    .card { border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: var(--shadow); }
+    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+    .card-body { padding: 20px; }
+    .stat-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 22px; }
+    .stat { min-height: 120px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
+    .stat-link { width: 100%; color: inherit; text-align: left; transition: border-color .15s, box-shadow .15s, transform .15s; }
+    .stat-link:hover { border-color: #9cadc5; box-shadow: 0 14px 30px rgb(25 47 79 / .11); transform: translateY(-1px); }
+    .stat-link:focus-visible { outline: 3px solid rgb(49 94 251 / .28); outline-offset: 2px; }
+    .stat .label { color: var(--muted); font-size: 12px; }
+    .stat strong { display: block; margin-top: 11px; font-size: 30px; letter-spacing: -.05em; }
+    .stat .detail { margin-top: 3px; color: var(--muted); font-size: 11px; }
+    .stat.primary strong { color: var(--primary); }
+    .stat.warning strong { color: var(--warning); }
+    .two-column { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr); gap: 18px; margin-top: 18px; }
+    .three-column { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .section-stack { display: grid; gap: 18px; }
+
+    label { display: grid; gap: 7px; color: #56657b; font-size: 12px; font-weight: 600; }
+    input, textarea, select { width: 100%; border: 1px solid #d9e0ea; border-radius: 8px; padding: 10px 11px; color: var(--ink); background: #fff; outline: none; transition: border-color .15s, box-shadow .15s; }
+    textarea { min-height: 82px; resize: vertical; }
+    input:focus, textarea:focus, select:focus { border-color: #8ca4ff; box-shadow: 0 0 0 3px rgb(49 94 251 / .11); }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .form-grid .wide { grid-column: 1 / -1; }
+    .monitor-form { display: grid; grid-template-columns: minmax(180px, .75fr) minmax(280px, 1.5fr) auto; gap: 12px; align-items: end; }
+    .monitor-batch-form { display: grid; gap: 12px; }
+    .monitor-batch-form textarea { min-height: 170px; }
+    .monitor-batch-result { white-space: pre-line; }
+    .monitor-batch-result.error { color: var(--danger); }
+    .notification-block-form { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(180px, .7fr) auto; gap: 12px; align-items: end; }
+
+    .button { display: inline-flex; min-height: 38px; align-items: center; justify-content: center; gap: 7px; border: 1px solid #d2d9e4; border-radius: 8px; padding: 8px 12px; color: #354154; background: #fff; text-decoration: none; white-space: nowrap; }
+    .button:hover { border-color: #9cadc5; background: #f8faff; }
+    .button.primary { border-color: var(--primary); color: #fff; background: var(--primary); }
+    .button.primary:hover { border-color: var(--primary-dark); background: var(--primary-dark); }
+    .button.danger { border-color: #f0c8cc; color: var(--danger); background: #fff9f9; }
+    .button.subtle { color: var(--muted); background: var(--surface-muted); }
+    .button.small-button { min-height: 31px; padding: 5px 8px; font-size: 12px; }
+    .button.full { width: 100%; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .tag { display: inline-flex; align-items: center; width: fit-content; border-radius: 99px; padding: 3px 8px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .tag.ok { color: #08774f; background: #e6f7f0; }
+    .tag.warning { color: #8f5d00; background: #fff4dd; }
+    .tag.error { color: #b63742; background: #ffeaec; }
+    .tag.neutral { color: #657287; background: #eff2f6; }
+    .tag.primary { color: #264bcc; background: #e8edff; }
+    .status-dot { display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: currentColor; }
+    .trade { display: inline-flex; align-items: center; border-radius: 6px; padding: 3px 7px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+    .trade.open_long, .trade.close_short { color: #087b54; background: #e1f7ee; }
+    .trade.close_long, .trade.open_short { color: #c13e4d; background: #ffeaed; }
+    .trade.unknown { color: #657287; background: #eff2f6; }
+
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; min-width: 760px; border-collapse: collapse; }
+    th, td { padding: 12px 15px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+    th { color: #7a8799; background: var(--surface-muted); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    .table-main { color: #25334a; font-weight: 700; }
+    .table-sub { max-width: 180px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .pnl-positive { color: var(--success); font-weight: 700; }
+    .pnl-negative { color: var(--danger); font-weight: 700; }
+    .empty { padding: 38px 20px; color: var(--muted); text-align: center; }
+
+    .monitor-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+    .monitor-card { display: grid; grid-template-columns: minmax(0, 1fr) 174px; gap: 16px; padding: 18px 19px; border: 1px solid var(--line); border-radius: 11px; background: #fff; }
+    .monitor-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .leader-link { border: 0; padding: 0; color: #25334a; background: transparent; font: inherit; font-weight: 700; text-align: left; }
+    .leader-link:hover { color: var(--primary); text-decoration: underline; }
+    .monitor-name { font-size: 15px; }
+    .monitor-note { margin: 8px 0 5px; color: #58677b; }
+    .monitor-url { display: block; max-width: 680px; overflow: hidden; color: var(--primary); font-size: 12px; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+    .monitor-error { margin-top: 7px; color: var(--danger); font-size: 12px; }
+    .monitor-actions { display: flex; flex-direction: column; align-content: stretch; justify-content: start; gap: 7px; }
+    .monitor-actions .button { width: 100%; }
+    .monitor-mode-select { width: 174px; min-height: 31px; padding: 5px 8px; font-size: 12px; }
+    .monitor-performance { margin-top: 15px; padding-top: 13px; border-top: 1px solid var(--line); }
+    .monitor-performance-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #53647a; font-size: 12px; font-weight: 700; }
+    .monitor-performance .period-grid { max-width: 480px; margin-top: 10px; }
+
+    .performance-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 15px; }
+    .performance-card { padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+    .performance-card header { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
+    .performance-card h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .period-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 15px; }
+    .period { padding: 10px 8px; border: 1px solid #e8edf4; border-radius: 8px; background: var(--surface-muted); text-align: center; }
+    .period span { display: block; color: var(--muted); font-size: 10px; font-weight: 700; }
+    .period strong { display: block; margin: 5px 0 2px; color: #274bc8; font-size: 18px; letter-spacing: -.04em; }
+    .period small { display: block; color: var(--muted); font-size: 10px; }
+    .metric-large { margin: 16px 0 3px; color: #1f48cf; font-size: 30px; font-weight: 800; letter-spacing: -.06em; }
+    .metric-line { display: grid; grid-template-columns: minmax(200px, 300px) minmax(0, 1fr); align-items: center; gap: 16px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf0f5; color: var(--muted); font-size: 12px; }
+    .metric-line strong { color: var(--ink); }
+    .explanation { display: flex; gap: 12px; padding: 15px 17px; border: 1px solid #dbe4ff; border-radius: 10px; color: #53647b; background: #f4f7ff; font-size: 12px; }
+    .explanation strong { color: #2f53ce; }
+
+    .filter-bar { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+    .filter-group { display: flex; flex: 1; flex-wrap: wrap; align-items: end; gap: 12px; }
+    .filter-control { display: grid; min-width: min(100%, 300px); gap: 6px; }
+    .filter-control.compact { min-width: 130px; flex: 0 1 170px; }
+    .operation-context { display: flex; flex: 1 1 390px; flex-wrap: wrap; align-items: center; gap: 7px; min-height: 38px; }
+    .operation-context:empty { display: none; }
+    .rate-chip { display: inline-flex; gap: 4px; align-items: baseline; padding: 5px 8px; border: 1px solid #dce4f0; border-radius: 7px; color: var(--muted); background: var(--surface-muted); font-size: 11px; }
+    .rate-chip strong { color: #294ac5; font-size: 12px; }
+    .channel-switch { display: inline-flex; align-items: center; gap: 7px; color: #46566e; font-size: 12px; font-weight: 700; }
+    .channel-switch input { width: 15px; height: 15px; margin: 0; accent-color: var(--primary); }
+    .notification-list { display: grid; }
+    .log-list { max-height: 560px; overflow-y: auto; }
+    .notification-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+    .notification-tab { border: 1px solid #d2d9e4; border-radius: 8px; padding: 8px 12px; color: #536178; background: var(--surface); font-size: 12px; font-weight: 700; }
+    .notification-tab:hover { border-color: #9cadc5; background: #f8faff; }
+    .notification-tab.active { border-color: var(--primary); color: #2449cb; background: #eaf0ff; }
+    .notification-panel { display: none; }
+    .notification-panel.active { display: block; }
+    .notification-panel .log-list { max-height: none; }
+    .notification-item { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--line); }
+    .notification-item:last-child { border-bottom: 0; }
+    .notification-item > .actions { justify-content: end; }
+    .security-list { display: grid; gap: 0; }
+    .security-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 15px 0; border-bottom: 1px solid var(--line); }
+    .security-row:last-child { border-bottom: 0; }
+    .security-row strong { display: block; margin-bottom: 2px; }
+    .security-row code { display: inline-block; margin-top: 4px; color: #415169; font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; word-break: break-all; }
+    .session-settings-form { display: flex; align-items: end; gap: 8px; }
+    .session-settings-form label { width: 112px; }
+    .session-settings-form input { min-height: 31px; padding: 5px 8px; }
+
+    dialog { width: min(520px, calc(100vw - 30px)); border: 0; border-radius: 14px; padding: 0; color: var(--ink); box-shadow: 0 24px 80px rgb(20 35 57 / .25); }
+    dialog::backdrop { background: rgb(15 27 45 / .45); backdrop-filter: blur(2px); }
+    .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+    .icon-close { width: 32px; height: 32px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font-size: 20px; }
+    .dialog-actions { display: flex; justify-content: end; gap: 8px; margin-top: 20px; }
+    .toast { position: fixed; right: 22px; bottom: 22px; z-index: 4; max-width: min(420px, calc(100vw - 44px)); padding: 12px 14px; border: 1px solid #dce4ef; border-radius: 9px; color: #334158; background: #fff; box-shadow: 0 12px 34px rgb(23 42 69 / .18); opacity: 0; pointer-events: none; transform: translateY(8px); transition: .18s ease; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.error { border-color: #f0c3c8; color: #a5323c; background: #fffafb; }
+
+    @media (max-width: 1180px) {
+      .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .monitor-form { grid-template-columns: 1fr 1fr; }
+      .notification-block-form { grid-template-columns: 1fr 1fr; }
+      .monitor-form .url-field { grid-column: 1 / -1; }
+      .monitor-form .button { width: 100%; }
+      .performance-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 900px) {
+      .app-shell { display: block; }
+      .sidebar { position: sticky; z-index: 2; height: auto; min-height: 0; padding: 10px 14px; }
+      .sidebar-brand { padding: 0 4px; }
+      .sidebar-brand span, .nav-label, .sidebar-footer { display: none; }
+      .sidebar nav { display: flex; gap: 4px; overflow-x: auto; padding-top: 9px; }
+      .nav-button { width: auto; flex: 0 0 auto; padding: 8px 10px; }
+      .nav-button.active { box-shadow: inset 0 -2px 0 #7b9aff; }
+      .topbar { min-height: 66px; }
+      .two-column { grid-template-columns: 1fr; }
+      .monitor-list { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 620px) {
+      .login-page { grid-template-columns: 1fr; }
+      .login-intro { min-height: 330px; padding: 40px 28px; }
+      .login-intro h1 { font-size: 37px; }
+      .login-panel { padding: 34px 25px 48px; }
+      .account-box .account-name { display: none; }
+      .content { padding: 22px 15px 36px; }
+      .topbar { padding: 13px 15px; }
+      .stat-grid, .performance-grid, .three-column, .form-grid, .monitor-form, .notification-block-form, .metric-line { grid-template-columns: 1fr; }
+      .period-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .monitor-form .url-field { grid-column: auto; }
+      .page-header { display: block; }
+      .page-header .actions { margin-top: 13px; }
+      .monitor-card { grid-template-columns: 1fr; }
+      .monitor-actions { justify-content: start; }
+      .filter-bar { display: grid; }
+      .filter-group { display: grid; }
+      .operation-context { min-height: 0; }
+       .notification-item { grid-template-columns: auto 1fr; }
+       .notification-item time { grid-column: 2; }
+       .notification-item > .actions { grid-column: 2; justify-content: start; }
+      .session-settings-form { width: 100%; align-items: end; }
+    }
+  </style>
+</head>
+<body>
+  <div id="auth-loading" class="auth-loading"><span><b class="brand-mark">CW</b>正在确认登录状态...</span></div>
+
+  <section id="login-page" class="login-page hidden">
+    <div class="login-intro">
+      <div class="brand-mark">CW</div>
+      <div class="eyebrow">BINANCE COPY TRADING</div>
+      <h1>策略监控中心</h1>
+      <p>面向带单策略的实时观察、操作追踪与 Telegram 通知工作台。</p>
+      <div class="intro-points">
+        <span>统一管理多个 Binance 带单员地址</span>
+        <span>每分钟更新操作记录与通知状态</span>
+        <span>基于已实现盈亏计算项目表现</span>
+      </div>
+    </div>
+    <div class="login-panel">
+      <div class="login-card">
+        <div class="eyebrow" style="color: #315efb">安全登录</div>
+        <h2>欢迎回来</h2>
+        <p class="muted">请使用管理员账号进入策略监控中心。</p>
+        <form id="login-form" class="login-form">
+          <label>账号<input id="login-username" autocomplete="username" value="admin" required></label>
+          <label>密码<input id="login-password" type="password" autocomplete="current-password" required></label>
+          <button class="button primary full" type="submit">登录工作台</button>
+        </form>
+        <div class="login-help">首次部署会在容器日志中打印一次随机管理员密码。使用 <code>docker compose logs</code> 查看；首次登录后请在“系统设置”中修改密码。</div>
+      </div>
+    </div>
+  </section>
+
+  <div id="app-shell" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-mark">CW</div>
+        <div><strong>策略监控中心</strong><span>Copy Watch Console</span></div>
+      </div>
+      <nav>
+        <div class="nav-label">工作台</div>
+        <button class="nav-button active" data-view="overview"><span class="nav-icon">◫</span>概览</button>
+        <button class="nav-button" data-view="monitors"><span class="nav-icon">◎</span>监控管理</button>
+         <button class="nav-button" data-view="operations"><span class="nav-icon">≡</span>操作记录</button>
+         <div class="nav-label">分析与设置</div>
+         <button class="nav-button" data-view="notifications"><span class="nav-icon">⌁</span>通知中心</button>
+         <button class="nav-button" data-view="notification-blocks"><span class="nav-icon">⊘</span>通知屏蔽</button>
+          <button class="nav-button" data-view="security"><span class="nav-icon">◇</span>系统设置</button>
+      </nav>
+      <div class="sidebar-footer"><div>数据轮询间隔：<span id="sidebar-interval">20</span> 秒</div><div>版本：<span id="sidebar-version">载入中</span></div></div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div><div class="breadcrumb">策略监控中心 / <span id="crumb">概览</span></div><h1 id="page-title">概览</h1></div>
+        <div class="account-box"><div class="avatar">A</div><div class="account-name"><strong id="account-username">admin</strong><div class="small">管理员</div></div><button id="logout-button" class="button subtle small-button">退出</button></div>
+      </header>
+
+      <div class="content">
+        <section id="view-overview" class="view active">
+          <div class="page-header"><div><h2>运行概览</h2><p>集中查看当前监控健康度、最新带单活动与项目表现。</p></div><div class="actions"><button id="overview-refresh" class="button">刷新数据</button></div></div>
+          <div class="stat-grid">
+            <article class="stat primary"><div class="label">已启用监控</div><strong id="metric-active">0</strong><div class="detail">监控地址总数 <span id="metric-total">0</span></div></article>
+            <article class="stat"><div class="label">已收录操作</div><strong id="metric-operations">0</strong><div class="detail">当前本地记录总量</div></article>
+            <article class="stat warning"><div class="label">待发送通知</div><strong id="metric-pending">0</strong><div class="detail">将在下一轮轮询重试</div></article>
+            <button class="stat stat-link" type="button" data-go="monitors" title="查看异常带单人"><div class="label">监控异常</div><strong id="metric-errors">0</strong><div class="detail">点击查看异常带单人</div></button>
+            <article class="stat"><div class="label">上次轮询</div><strong id="metric-poll" style="font-size: 20px">-</strong><div class="detail">系统每 20 秒更新</div></article>
+          </div>
+          <article class="card" style="margin-top: 18px"><div class="card-head"><h3>最新操作</h3><button class="button small-button" data-go="operations">全部记录</button></div><div class="table-wrap"><table><thead><tr><th>时间 (UTC+8)</th><th>策略</th><th>交易对</th><th>操作类型</th><th>均价</th><th>数量</th><th>参考杠杆</th><th>已实现盈亏</th><th>操作记录</th></tr></thead><tbody id="overview-operation-body"></tbody></table></div></article>
+          <article class="card" style="margin-top: 18px"><div class="card-head"><h3>项目表现摘要</h3><button class="button small-button" data-go="monitors">查看监控</button></div><div id="overview-performance" class="card-body"></div></article>
+        </section>
+
+        <section id="view-monitors" class="view">
+          <div class="page-header"><div><h2>监控管理</h2><p>添加同类 Binance 带单员地址、设置备注并管理单个监控项。</p></div></div>
+          <article class="card"><div class="card-head"><h3>新增监控地址</h3><button id="monitor-add-toggle" class="button primary small-button" type="button" aria-expanded="false">新增监控</button></div><div id="monitor-add-content" class="hidden"><div class="card-body actions"><button class="button primary small-button" type="button" data-monitor-add-mode="single">单个添加</button><button class="button subtle small-button" type="button" data-monitor-add-mode="batch">批量添加</button></div><form id="monitor-add-form" class="card-body monitor-form"><label>备注<input id="add-monitor-note" maxlength="300" placeholder="例如：中低频观察"></label><label class="url-field">Binance 带单员详情地址<input id="add-monitor-url" required placeholder="https://www.binance.com/zh-CN/copy-trading/lead-details/..."></label><button class="button primary" type="submit">添加监控</button></form><form id="monitor-batch-form" class="card-body monitor-batch-form hidden"><label>统一备注<input id="batch-monitor-note" maxlength="300" placeholder="可选，将应用到本批全部地址"></label><label>包含 Binance 带单员地址的文本<textarea id="batch-monitor-urls" required placeholder="可直接粘贴任意长文本，系统会自动识别其中全部 Binance 带单员详情地址，最多添加 20 条&#10;https://www.binance.com/zh-CN/copy-trading/lead-details/..."></textarea></label><div class="actions"><button class="button primary" type="submit">识别并批量添加</button><span class="small">会自动去重、回溯近 7 天建立基线，并仅推送每个源的最新一条操作。</span></div><div id="batch-add-result" class="small monitor-batch-result"></div></form></div></article>
+          <article class="card" style="margin-top: 18px"><div class="card-head"><h3>已配置地址</h3><div class="actions"><input id="monitor-keyword-filter" aria-label="筛选已配置地址" placeholder="名称、备注、地址或 ID"><select id="monitor-mode-filter" aria-label="筛选监听与通知类型"><option value="">全部监听与通知类型</option><option value="notify">启动监听并允许通知</option><option value="silent">启动监听但不允许通知</option><option value="stopped">不启动监听</option></select><span id="monitor-count" class="small">0 个</span></div></div><div id="monitoring-list" class="card-body monitor-list"></div></article>
+        </section>
+
+        <section id="view-notification-blocks" class="view">
+          <div class="page-header"><div><h2>通知屏蔽</h2><p>按带单人和合约屏蔽通知。操作仍保留在历史中；解除后不会补发已屏蔽操作。</p></div></div>
+          <article class="card"><div class="card-head"><h3>新增屏蔽规则</h3></div><form id="notification-block-form" class="card-body notification-block-form"><label>带单人<select id="notification-block-monitor" required></select></label><label>合约<input id="notification-block-symbol" list="notification-block-symbols" required maxlength="30" placeholder="例如 BTCUSDT"></label><button class="button primary" type="submit">添加屏蔽</button></form><datalist id="notification-block-symbols"></datalist></article>
+          <article class="card" style="margin-top: 18px"><div class="card-head"><h3>已屏蔽规则</h3><span class="small">解除后仅恢复未来操作通知</span></div><div id="notification-block-list" class="card-body notification-list"></div></article>
+        </section>
+
+        <section id="view-operations" class="view">
+          <div class="page-header"><div><h2>操作记录</h2><p>直接使用 Binance 最新操作记录；同一时间、交易对、方向和均价的分笔成交会合并为一条操作。参考杠杆按同币种仓位历史匹配。</p></div></div>
+          <article class="card"><div class="card-body"><div class="filter-bar"><div class="filter-group"><label class="filter-control compact">时间范围<select id="operation-time-filter"><option value="">全部时间</option><option value="1">最近 24 小时</option><option value="7">最近 7 天</option><option value="30">最近 30 天</option></select></label><label class="filter-control">按带单人筛选<select id="operation-monitor-filter"><option value="">全部带单人</option></select></label><label class="filter-control compact">操作类型<select id="operation-action-filter"><option value="">全部类型</option></select></label><label class="filter-control compact">合约<select id="operation-symbol-filter"><option value="">全部合约</option></select></label><label class="filter-control compact">通知状态<select id="operation-notification-filter"><option value="">全部状态</option></select></label><label class="filter-control compact">关键词<input id="operation-keyword-filter" placeholder="任意关键词筛选"></label><div id="operation-monitor-context" class="operation-context"></div></div><div class="actions"><button id="operations-refresh" class="button">刷新记录</button><button id="operations-clear" class="button danger">清理历史记录</button></div></div><div id="operations-timeline" class="operation-timeline"></div></div></article>
+        </section>
+
+
+        <section id="view-notifications" class="view">
+          <div class="page-header"><div><h2>通知中心</h2><p>配置 Telegram、钉钉、飞书或 SMTP 邮箱接收端，并查看近期推送尝试结果。</p></div></div>
+          <div class="notification-tabs" role="tablist" aria-label="通知中心分栏"><button class="notification-tab active" type="button" data-notification-panel="telegram" role="tab" aria-selected="true">Telegram Bots</button><button class="notification-tab" type="button" data-notification-panel="dingtalk" role="tab" aria-selected="false">钉钉机器人</button><button class="notification-tab" type="button" data-notification-panel="feishu" role="tab" aria-selected="false">飞书机器人</button><button class="notification-tab" type="button" data-notification-panel="email" role="tab" aria-selected="false">SMTP 邮箱</button><button class="notification-tab" type="button" data-notification-panel="attempts" role="tab" aria-selected="false">通知发送日志</button><button class="notification-tab" type="button" data-notification-panel="system" role="tab" aria-selected="false">系统运行日志</button></div>
+          <div id="notification-panel-telegram" class="notification-panel active" role="tabpanel"><article class="card"><div class="card-head"><h3>新增 Telegram Bot</h3><span class="small">可添加多个独立 Bot</span></div><form id="telegram-channel-form" class="card-body section-stack"><div class="form-grid"><label>实例名称<input id="telegram-channel-name" required maxlength="80" placeholder="例如：交易群机器人"></label><label>Bot Token<input id="telegram-channel-token" required type="password" autocomplete="new-password"></label><label>Chat ID<input id="telegram-channel-chat-id" required autocomplete="off" placeholder="例如：-1001234567890"></label></div><div class="actions"><label class="channel-switch"><input id="telegram-channel-enabled" type="checkbox" checked>启用此实例</label><button class="button primary" type="submit">添加 Telegram Bot</button></div></form></article><article class="card" style="margin-top: 18px"><div class="card-head"><h3>已添加 Telegram Bot</h3></div><div id="telegram-channel-list" class="card-body notification-list"></div></article></div>
+          <div id="notification-panel-dingtalk" class="notification-panel" role="tabpanel"><article class="card"><div class="card-head"><h3>新增钉钉机器人</h3><span class="small">支持关键词或加签安全设置</span></div><form id="dingtalk-channel-form" class="card-body section-stack"><div class="form-grid"><label>实例名称<input id="dingtalk-channel-name" required maxlength="80" placeholder="例如：运营告警群"></label><label class="url-field">Webhook 地址<input id="dingtalk-channel-webhook" required type="url" autocomplete="off" placeholder="https://oapi.dingtalk.com/robot/send?access_token=..."></label><label>加签密钥（可选）<input id="dingtalk-channel-secret" type="password" autocomplete="new-password" placeholder="仅选择加签时填写"></label></div><div class="actions"><label class="channel-switch"><input id="dingtalk-channel-enabled" type="checkbox" checked>启用此机器人</label><button class="button primary" type="submit">添加钉钉机器人</button></div><p class="small">Webhook 与加签密钥仅存储在服务器数据卷，不会回显。仅接受钉钉自定义机器人 Webhook。</p></form></article><article class="card" style="margin-top: 18px"><div class="card-head"><h3>已添加钉钉机器人</h3></div><div id="dingtalk-channel-list" class="card-body notification-list"></div></article></div>
+          <div id="notification-panel-feishu" class="notification-panel" role="tabpanel"><article class="card"><div class="card-head"><h3>新增飞书机器人</h3><span class="small">支持关键词、IP 白名单或签名安全设置</span></div><form id="feishu-channel-form" class="card-body section-stack"><div class="form-grid"><label>实例名称<input id="feishu-channel-name" required maxlength="80" placeholder="例如：策略告警群"></label><label class="url-field">Webhook 地址<input id="feishu-channel-webhook" required type="url" autocomplete="off" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."></label><label>签名密钥（可选）<input id="feishu-channel-secret" type="password" autocomplete="new-password" placeholder="启用签名校验时填写"></label></div><div class="actions"><label class="channel-switch"><input id="feishu-channel-enabled" type="checkbox" checked>启用此机器人</label><button class="button primary" type="submit">添加飞书机器人</button></div><p class="small">Webhook 与签名密钥仅存储在服务器数据卷，不会回显。仅接受飞书自定义机器人 Webhook。</p></form></article><article class="card" style="margin-top: 18px"><div class="card-head"><h3>已添加飞书机器人</h3></div><div id="feishu-channel-list" class="card-body notification-list"></div></article></div>
+          <div id="notification-panel-email" class="notification-panel" role="tabpanel"><article class="card"><div class="card-head"><h3>SMTP 邮箱接入</h3><span id="email-status" class="tag neutral">未配置</span></div><form id="email-form" class="card-body section-stack"><div class="form-grid"><label>SMTP 主机<input id="email-host" placeholder="smtp.example.com"></label><label>端口<input id="email-port" type="number" min="1" max="65535" value="465"></label><label>登录账号<input id="email-username" autocomplete="username" placeholder="name@example.com"></label><label>登录密码 / 授权码<input id="email-password" type="password" autocomplete="new-password" placeholder="留空则保留现有密码"></label><label>发件人地址<input id="email-from" type="email" placeholder="留空则使用登录账号"></label><label>收件人地址<input id="email-to" type="email" placeholder="alert@example.com"></label><label>加密方式<select id="email-security"><option value="ssl">SSL/TLS（通常为 465）</option><option value="starttls">STARTTLS（通常为 587）</option><option value="plain">明文连接</option></select></label></div><div class="actions"><label class="channel-switch"><input id="email-enabled" type="checkbox" checked>启用邮件通知</label><button class="button primary" type="submit">保存邮箱配置</button><button id="test-email" class="button" type="button">发送测试邮件</button></div><p class="small">关闭后保留配置但不再自动推送；两个通知渠道可独立启用。</p></form></article><article class="card" style="margin-top: 18px"><div class="card-head"><h3>已添加 SMTP 邮箱</h3></div><div id="email-channel-list" class="card-body notification-list"></div></article></div>
+          <div id="notification-panel-attempts" class="notification-panel" role="tabpanel"><article class="card"><div class="card-head"><h3>通知发送日志</h3><span class="small">按时间倒序 · 最多 200 条</span></div><div id="notification-history" class="card-body notification-list log-list"></div></article></div>
+          <div id="notification-panel-system" class="notification-panel" role="tabpanel"><article class="card"><div class="card-head"><h3>系统运行日志</h3><span class="small">轮询、异常与历史清理 · 最多 200 条</span></div><div id="system-log-history" class="card-body notification-list log-list"></div></article></div>
+        </section>
+
+        <section id="view-security" class="view">
+          <div class="page-header"><div><h2>系统设置</h2><p>管理轮询、管理员会话、登录密码与运行数据。</p></div></div>
+          <div class="two-column">
+            <article class="card"><div class="card-head"><h3>账户与数据</h3></div><div class="card-body security-list"><div class="security-row"><div><strong id="security-username">admin</strong><span class="small">管理员账号</span></div><span class="tag ok"><span class="status-dot"></span>会话有效</span></div><div class="security-row"><div><strong>会话保护</strong><span class="small">使用 HttpOnly Cookie。保存后会退出全部会话，新有效期在重新登录后生效。</span></div><form id="session-settings-form" class="session-settings-form"><label>有效期（小时）<input id="session-ttl-hours" type="number" min="1" max="720" required></label><button class="button small-button" type="submit">保存</button></form></div><div class="security-row"><div><strong>轮询周期</strong><span class="small">范围 5–3600 秒，保存后下一轮生效。订单请求超过 8.5 秒会立即重试一次。</span></div><form id="poll-settings-form" class="session-settings-form"><label>间隔（秒）<input id="poll-interval-seconds" type="number" min="5" max="3600" required></label><button class="button small-button" type="submit">保存</button></form></div><div class="security-row"><div><strong>初始密码</strong><span class="small">仅在首次容器启动时打印一次；在服务器项目目录执行：</span><code>docker compose logs copy-watch | grep '初始密码'</code></div></div><div class="security-row"><div><strong>导出监控源</strong><span class="small">下载全部已保存的 Binance 带单员地址。</span></div><a class="button small-button" href="/api/monitors/export">导出 URL</a></div><div class="security-row"><div><strong>重置记录状态</strong><span class="small">清除操作、去重基线和通知发送记录；启用源将按首次添加流程重建基线，不补发通知。</span></div><button id="reset-record-state" class="button danger small-button" type="button">重置记录</button></div><div class="security-row"><div><strong>清空所有日志</strong><span class="small">删除通知发送日志和系统运行日志，无法恢复。</span></div><button id="clear-logs" class="button danger small-button" type="button">清空日志</button></div></div></article>
+            <article class="card"><div class="card-head"><h3>修改登录密码</h3></div><form id="password-form" class="card-body section-stack"><label>当前密码<input id="current-password" type="password" autocomplete="current-password" required></label><label>新密码<input id="new-password" type="password" minlength="12" autocomplete="new-password" required><span class="small">至少 12 个字符。修改成功后会退出所有已登录会话。</span></label><button class="button primary" type="submit">更新密码</button></form></article>
+          </div>
+        </section>
+      </div>
+      <footer class="app-footer">开源仓库：<a href="https://github.com/jiemo9527/takusdt" target="_blank" rel="noreferrer">github.com/jiemo9527/takusdt</a></footer>
+    </main>
+  </div>
+
+  <dialog id="monitor-dialog"><div class="dialog-head"><h2>编辑监控备注</h2><button id="dialog-close" class="icon-close" type="button">×</button></div><form id="monitor-edit-form" class="card-body"><input id="edit-monitor-id" type="hidden"><div class="form-grid"><label class="wide">备注<textarea id="edit-monitor-note" maxlength="300" placeholder="记录这个地址的用途、策略或风险偏好"></textarea></label></div><div class="dialog-actions"><button id="dialog-cancel" class="button" type="button">取消</button><button class="button primary" type="submit">保存修改</button></div></form></dialog>
+  <div id="toast" class="toast" role="status"></div>
+
+  <script>
+    const $ = (selector) => document.querySelector(selector);
+    const state = { dashboard: null, user: null, operations: [], operationsLoaded: false, operationLinkHash: "", currentView: "overview" };
+    const pageNames = { overview: "概览", monitors: "监控管理", operations: "操作记录", notifications: "通知中心", "notification-blocks": "通知屏蔽", security: "系统设置" };
+    $("#operation-monitor-context").insertAdjacentHTML("afterend", '<div id="operation-symbol-summary" class="operation-context"></div>');
+    $("#operation-symbol-summary").insertAdjacentHTML("afterend", '<div id="operation-block-toggle" class="operation-context"></div>');
+    let refreshTimer;
+    let operationRefreshTimer;
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+    }
+
+    function formatTime(value) {
+      if (!value) return "-";
+      return new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
+    }
+
+    function showToast(message, isError = false) {
+      const toast = $("#toast");
+      toast.textContent = message;
+      toast.className = `toast show${isError ? " error" : ""}`;
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => toast.className = "toast", 4300);
+    }
+
+    async function api(path, options = {}, allowUnauthorized = false) {
+      const headers = { ...(options.headers || {}) };
+      if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+      const response = await fetch(path, { ...options, headers });
+      if (response.status === 204) return null;
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (response.status === 401 && !allowUnauthorized) showLogin();
+        throw new Error(body.detail || `请求失败 (${response.status})`);
+      }
+      return body;
+    }
+
+    function showLogin() {
+      state.user = null;
+      clearInterval(refreshTimer);
+      clearInterval(operationRefreshTimer);
+      $("#auth-loading").classList.add("hidden");
+      $("#app-shell").classList.add("hidden");
+      $("#login-page").classList.remove("hidden");
+      $("#login-password").value = "";
+    }
+
+    function hashRoute() {
+      const [view, query = ""] = location.hash.slice(1).split("?", 2);
+      return { view: view || "overview", parameters: new URLSearchParams(query) };
+    }
+
+    function applyOperationLinkFilters() {
+      const route = hashRoute();
+      if (route.view !== "operations" || state.operationLinkHash === location.hash || !state.dashboard || !state.operationsLoaded) return;
+      const monitorId = route.parameters.get("monitor-id");
+      const monitorName = route.parameters.get("monitor-name");
+      const monitor = state.dashboard.monitors.find((item) => (
+        (monitorId && String(item.id) === monitorId) || (!monitorId && monitorName && item.name === monitorName)
+      ));
+      if (monitor) $("#operation-monitor-filter").value = String(monitor.id);
+      const symbol = route.parameters.get("symbol-link")?.toUpperCase();
+      const symbolSelect = $("#operation-symbol-filter");
+      if (symbol && [...symbolSelect.options].some((option) => option.value === symbol)) symbolSelect.value = symbol;
+      state.operationLinkHash = location.hash;
+    }
+
+    function showWorkspace(user) {
+      state.user = user;
+      $("#auth-loading").classList.add("hidden");
+      $("#login-page").classList.add("hidden");
+      $("#app-shell").classList.remove("hidden");
+      $("#account-username").textContent = user.username;
+      $("#security-username").textContent = user.username;
+      navigate(hashRoute().view, false);
+    }
+
+    function setDashboardRefreshInterval(seconds) {
+      clearInterval(refreshTimer);
+      refreshTimer = setInterval(() => refreshDashboard(false), Math.max(5000, Number(seconds || 20) * 1000));
+    }
+
+    function navigate(view, updateHash = true) {
+      if (!pageNames[view]) view = "overview";
+      state.currentView = view;
+      document.querySelectorAll(".view").forEach((item) => item.classList.toggle("active", item.id === `view-${view}`));
+      document.querySelectorAll(".nav-button").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
+      $("#crumb").textContent = pageNames[view];
+      $("#page-title").textContent = pageNames[view];
+      if (updateHash) history.replaceState(null, "", `#${view}`);
+      clearInterval(operationRefreshTimer);
+      if (view === "operations") {
+        loadOperations();
+        operationRefreshTimer = setInterval(() => {
+          if (state.user && state.currentView === "operations") loadOperations();
+        }, 30000);
+      }
+    }
+
+    function monitorState(monitor) {
+      if (!monitor.enabled) return ["不启动监听", "neutral"];
+      if (!monitor.notification_enabled) return ["启动监听但不允许通知", "warning"];
+      return ["启动监听并允许通知", "ok"];
+    }
+
+    function notificationTag(status) {
+      if (status === "sent") return '<span class="tag ok">已通知</span>';
+      if (status === "prealerted") return '<span class="tag primary">预警已通知</span>';
+      if (status === "pending") return '<span class="tag warning">待发送</span>';
+      if (status === "blocked") return '<span class="tag neutral">已屏蔽</span>';
+      if (status === "skipped") return '<span class="tag neutral">未推送</span>';
+      return '<span class="tag neutral">基线</span>';
+    }
+
+    function pnlHtml(operation) {
+      const value = Number(operation.realized_profit || 0);
+      if (!value) return '<span class="muted">-</span>';
+      const sign = value > 0 ? "+" : "";
+      return `<span class="${value > 0 ? "pnl-positive" : "pnl-negative"}">${sign}${formatAmount(operation.realized_profit, operation.price_precision)} ${escapeHtml(operation.profit_asset)}</span>`;
+    }
+
+    function actionHtml(operation) {
+      return `<span class="trade ${escapeHtml(operation.action_key || "unknown")}">${escapeHtml(operation.action || "未知")}</span>`;
+    }
+
+    function monitorLinkHtml(monitorId, name, className = "leader-link") {
+      return `<button class="${className}" type="button" data-monitor-operations data-id="${monitorId}">${escapeHtml(name)}</button>`;
+    }
+
+    function operationHistoryLinkHtml(operation) {
+      return `<button class="button small-button" type="button" data-operation-history data-id="${operation.monitor_id}" data-symbol="${escapeHtml(operation.symbol)}">查看记录</button>`;
+    }
+
+    function formatAmount(value, precision) {
+      const amount = Number(value);
+      if (!Number.isFinite(amount)) return escapeHtml(value || "-");
+      return Number.isInteger(precision) ? new Intl.NumberFormat("zh-CN", { minimumFractionDigits: precision, maximumFractionDigits: precision }).format(amount) : new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 8 }).format(amount);
+    }
+
+    function symbolLinkHtml(symbol) {
+      const normalized = String(symbol || "").toUpperCase();
+      if (!/^[A-Z0-9]{3,30}$/.test(normalized)) return escapeHtml(symbol || "-");
+      return `<a class="symbol-link" href="https://www.binance.com/zh-CN/futures/${encodeURIComponent(normalized)}" target="_blank" rel="noreferrer">${escapeHtml(normalized)}永续合约</a>`;
+    }
+
+    function timelineTime(value) {
+      return formatTime(value).replace(/^\d{4}\//, "").replace("/", "-").replace(" ", "，");
+    }
+
+    function operationSummary(operation) {
+      const verb = operation.side === "BUY" ? "买入" : operation.side === "SELL" ? "卖出" : escapeHtml(operation.side || "");
+      const profit = Number(operation.realized_profit || 0);
+      const profitText = profit ? `，已实现盈亏为 <span class="${profit > 0 ? "pnl-positive" : "pnl-negative"}">${profit > 0 ? "+" : ""}${formatAmount(operation.realized_profit, operation.price_precision)} ${escapeHtml(operation.profit_asset)}</span>` : "";
+      const leverageText = operation.reference_leverage ? `，仓位历史参考杠杆为 <strong>${escapeHtml(operation.reference_leverage)}x</strong>` : "";
+      return `以均价为 <strong>${formatAmount(operation.price, operation.price_precision)} ${escapeHtml(operation.quote_asset)}</strong> ${verb} ${symbolLinkHtml(operation.symbol)}，成交数量为 <strong>${formatAmount(operation.qty, operation.quantity_precision)} ${escapeHtml(operation.base_asset)}</strong>，总价值为 <strong>${formatAmount(operation.quantity, operation.price_precision)} ${escapeHtml(operation.quote_asset)}</strong>${profitText}${leverageText}。`;
+    }
+
+    function renderOverview(data) {
+      const metrics = data.metrics;
+      $("#metric-active").textContent = metrics.active_count;
+      $("#metric-total").textContent = metrics.monitor_count;
+      $("#metric-operations").textContent = metrics.operation_count;
+      $("#metric-pending").textContent = metrics.pending_count;
+      $("#metric-errors").textContent = metrics.error_count;
+      $("#metric-poll").textContent = data.last_poll_at ? formatTime(data.last_poll_at).replace(/\d{4}\//, "") : "等待中";
+      $("#sidebar-interval").textContent = data.poll_interval_seconds;
+      $("#sidebar-version").textContent = String(data.version || "dev");
+      const qualified = data.performance.filter((item) => item.periods["30d"].win_rate !== null);
+      $("#overview-performance").innerHTML = qualified.length ? qualified.slice(0, 8).map((item) => {
+        const week = item.periods["7d"];
+        const month = item.periods["30d"];
+        return `<div class="metric-line">${monitorLinkHtml(item.monitor_id, item.name)}<div><strong>7D 胜率 ${week.win_rate === null ? "暂无" : `${week.win_rate}%`} · 最大回撤 ${week.max_drawdown === null ? "暂无" : `${week.max_drawdown}%`}</strong><div class="small">30D 已实现盈亏：${escapeHtml(formatPnl(month.pnl))} · 保守胜率：${month.conservative_win_rate}%</div></div></div>`;
+      }).join("") : '<div class="empty">最近 30 天暂无已结算盈亏记录。</div>';
+
+      $("#overview-operation-body").innerHTML = data.operations.length ? data.operations.slice(0, 7).map((operation) => `<tr><td class="small">${formatTime(operation.occurred_at)}</td><td><div class="table-main">${monitorLinkHtml(operation.monitor_id, operation.monitor_name)}</div><div class="table-sub">${escapeHtml(operation.monitor_note || "-")}</div></td><td class="table-main">${symbolLinkHtml(operation.symbol)}</td><td>${actionHtml(operation)}</td><td>${formatAmount(operation.price, operation.price_precision)} ${escapeHtml(operation.quote_asset)}</td><td>${formatAmount(operation.qty, operation.quantity_precision)} ${escapeHtml(operation.base_asset)}</td><td>${operation.reference_leverage ? `${escapeHtml(operation.reference_leverage)}x` : "-"}</td><td>${pnlHtml(operation)}</td><td>${operationHistoryLinkHtml(operation)}</td></tr>`).join("") : '<tr><td colspan="9" class="empty">暂无操作记录</td></tr>';
+    }
+
+    function monitorPerformanceHtml(item) {
+      if (!item) return "";
+      const period = (label, value) => `<div class="period"><span>${label}</span><strong>${value.win_rate === null ? "暂无" : `${value.win_rate}%`}</strong><small>${value.wins} 胜 / ${value.losses} 负</small><small>最大回撤 ${value.max_drawdown === null ? "暂无" : `${value.max_drawdown}%`}</small></div>`;
+      const current = item.periods["30d"];
+      return `<div class="monitor-performance"><div class="monitor-performance-title"><span>项目表现</span><span>已存 ${item.stored_records} 条 · 30D ${current.sample_reliability}可信度</span></div><div class="period-grid">${period("7D", item.periods["7d"])}${period("30D", current)}${period("90D", item.periods["90d"])}</div>${current.win_rate === null ? "" : `<div class="small">30D 已实现盈亏：${escapeHtml(formatPnl(current.pnl))} · 保守胜率：${current.conservative_win_rate}%</div>`}</div>`;
+    }
+
+    function renderMonitorList(monitors, performanceItems) {
+      const keyword = $("#monitor-keyword-filter").value.trim().toLocaleLowerCase();
+      const mode = $("#monitor-mode-filter").value;
+      const filteredMonitors = monitors.filter((monitor) => (
+        (!keyword || [monitor.name, monitor.note, monitor.url, monitor.portfolio_id]
+          .join(" ").toLocaleLowerCase().includes(keyword))
+        && (!mode || monitor.mode === mode)
+      ));
+      $("#monitor-count").textContent = keyword || mode ? `${filteredMonitors.length} / ${monitors.length} 个地址` : `${monitors.length} 个地址`;
+      const performanceByMonitor = new Map(performanceItems.map((item) => [item.monitor_id, item]));
+      $("#monitoring-list").innerHTML = filteredMonitors.length ? filteredMonitors.map((monitor) => {
+        const [label, tone] = monitorState(monitor);
+        const monitorErrors = monitor.current_errors || [];
+        const errorHtml = monitorErrors.map((error) => `<div class="monitor-error"><strong>${escapeHtml(error.scope)}：</strong>${escapeHtml(error.message)}</div>`).join("");
+        return `<article class="monitor-card"><div><div class="monitor-title">${monitorLinkHtml(monitor.id, monitor.name, "leader-link monitor-name")}<span class="tag ${tone}">${label}</span>${monitor.check_queued ? '<span class="tag primary">检查中</span>' : ""}${monitorErrors.length ? `<span class="tag error">异常 ${monitorErrors.length}</span>` : ""}${monitor.pending_count ? `<span class="tag warning">待发 ${monitor.pending_count}</span>` : ""}</div><p class="monitor-note">${escapeHtml(monitor.note || "未填写备注")}</p><a class="monitor-url" href="${escapeHtml(monitor.url)}" target="_blank" rel="noreferrer">${escapeHtml(monitor.url)}</a><div class="small">portfolioId：${escapeHtml(monitor.portfolio_id)} · 最近成功：${formatTime(monitor.last_success_at)}</div>${errorHtml}${monitorPerformanceHtml(performanceByMonitor.get(monitor.id))}</div><div class="monitor-actions"><select class="monitor-mode-select" data-monitor-mode data-id="${monitor.id}" aria-label="监听状态"><option value="notify" ${monitor.mode === "notify" ? "selected" : ""}>启动监听并允许通知</option><option value="silent" ${monitor.mode === "silent" ? "selected" : ""}>启动监听但不允许通知</option><option value="stopped" ${monitor.mode === "stopped" ? "selected" : ""}>不启动监听</option></select><a class="button small-button" href="${escapeHtml(monitor.url)}" target="_blank" rel="noreferrer">打开原链接</a>${monitor.enabled ? `<button class="button small-button" data-monitor-action="check" data-id="${monitor.id}">立即检查</button>` : ""}<button class="button small-button" data-monitor-action="edit" data-id="${monitor.id}">编辑备注</button><button class="button danger small-button" data-monitor-action="delete" data-id="${monitor.id}">删除</button></div></article>`;
+      }).join("") : `<div class="empty">${monitors.length ? "没有匹配的已配置地址" : "暂无监控地址。添加地址后，首次查询会建立操作基线。"}</div>`;
+    }
+
+    function renderNotificationBlocks(blocks, monitors) {
+      const monitorSelect = $("#notification-block-monitor");
+      const selectedMonitor = monitorSelect.value;
+      monitorSelect.innerHTML = monitors.length
+        ? monitors.map((monitor) => `<option value="${monitor.id}">${escapeHtml(monitor.name)}${monitor.note ? ` · ${escapeHtml(monitor.note)}` : ""}</option>`).join("")
+        : '<option value="">暂无已配置带单人</option>';
+      monitorSelect.disabled = !monitors.length;
+      $("#notification-block-form button").disabled = !monitors.length;
+      if (monitors.some((monitor) => String(monitor.id) === selectedMonitor)) monitorSelect.value = selectedMonitor;
+
+      const symbols = [...new Set([...state.operations, ...state.dashboard.operations]
+        .map((operation) => String(operation.symbol || "").toUpperCase())
+        .filter((symbol) => /^[A-Z0-9]{3,30}$/.test(symbol)))].sort();
+      $("#notification-block-symbols").innerHTML = symbols.map((symbol) => `<option value="${escapeHtml(symbol)}"></option>`).join("");
+
+      $("#notification-block-list").innerHTML = blocks.length ? blocks.map((block) => `<div class="notification-item"><span class="tag neutral">已屏蔽</span><div><strong>${escapeHtml(block.monitor_name)} · ${escapeHtml(block.symbol)}</strong><div class="small">添加于 ${formatTime(block.created_at)}${block.monitor_note ? ` · ${escapeHtml(block.monitor_note)}` : ""}</div></div><div class="actions"><button class="button danger small-button" type="button" data-notification-block-remove data-id="${block.id}">移除</button></div></div>`).join("") : '<div class="empty">暂无自定义屏蔽规则。</div>';
+    }
+
+    const operationFilterLabels = {
+      action: { open_long: "开多", close_long: "平多", open_short: "开空", close_short: "平空" },
+      notification: { pending: "待发送", sent: "已通知", prealerted: "预警已通知", blocked: "已屏蔽", skipped: "未推送", baseline: "基线" },
+    };
+    const operationFilterConfig = [
+      { key: "monitor", selector: "#operation-monitor-filter", emptyLabel: "全部带单人", value: (operation) => String(operation.monitor_id || ""), label: (operation) => `${operation.monitor_name || "未知带单人"}${operation.monitor_note ? ` · ${operation.monitor_note}` : ""}` },
+      { key: "action", selector: "#operation-action-filter", emptyLabel: "全部类型", value: (operation) => operation.action_key || "", label: (operation) => operationFilterLabels.action[operation.action_key] || operation.action || "未知" },
+      { key: "symbol", selector: "#operation-symbol-filter", emptyLabel: "全部合约", value: (operation) => operation.symbol || "", label: (operation) => operation.symbol || "" },
+      { key: "notification", selector: "#operation-notification-filter", emptyLabel: "全部状态", value: (operation) => operation.notification_status || "", label: (operation) => operationFilterLabels.notification[operation.notification_status] || operation.notification_status || "未知" },
+    ];
+
+    function operationFilterState() {
+      return {
+        time: $("#operation-time-filter").value,
+        monitor: $("#operation-monitor-filter").value,
+        action: $("#operation-action-filter").value,
+        symbol: $("#operation-symbol-filter").value,
+        notification: $("#operation-notification-filter").value,
+        keyword: $("#operation-keyword-filter").value.trim().toLocaleLowerCase(),
+      };
+    }
+
+    function matchesOperationFilters(operation, filters, excluded = "") {
+      const hours = Number(filters.time || 0);
+      const occurredAt = Number(operation.occurred_at || 0);
+      return (!hours || occurredAt >= Date.now() - hours * 60 * 60 * 1000)
+        && (excluded === "monitor" || !filters.monitor || String(operation.monitor_id) === filters.monitor)
+        && (excluded === "action" || !filters.action || operation.action_key === filters.action)
+        && (excluded === "symbol" || !filters.symbol || operation.symbol === filters.symbol)
+        && (excluded === "notification" || !filters.notification || operation.notification_status === filters.notification)
+        && (!filters.keyword || [
+          operation.monitor_name, operation.monitor_note, operation.symbol, operation.action,
+          operation.side, operation.position_side, operation.base_asset, operation.quote_asset,
+          operation.price, operation.qty, operation.quantity, operation.realized_profit,
+          operation.profit_asset, operation.reference_leverage, operation.notification_status,
+          formatTime(operation.occurred_at),
+        ].join(" ").toLocaleLowerCase().includes(filters.keyword));
+    }
+
+    function renderOperationFilters() {
+      for (let pass = 0; pass < operationFilterConfig.length; pass += 1) {
+        const filters = operationFilterState();
+        let changed = false;
+        operationFilterConfig.forEach((config) => {
+          const options = new Map();
+          state.operations.filter((operation) => matchesOperationFilters(operation, filters, config.key)).forEach((operation) => {
+            const value = config.value(operation);
+            if (value && !options.has(value)) options.set(value, config.label(operation));
+          });
+          const select = $(config.selector);
+          const selected = select.value;
+          const entries = [...options.entries()].sort((left, right) => left[1].localeCompare(right[1], "zh-CN"));
+          select.innerHTML = `<option value="">${config.emptyLabel}</option>${entries.map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("")}`;
+          select.value = options.has(selected) ? selected : "";
+          changed ||= selected !== select.value;
+        });
+        if (!changed) break;
+      }
+    }
+
+    function selectedOperations() {
+      const filters = operationFilterState();
+      return state.operations.filter((operation) => matchesOperationFilters(operation, filters));
+    }
+
+    function renderOperationContext() {
+      const context = $("#operation-monitor-context");
+      const monitorId = Number($("#operation-monitor-filter").value);
+      const monitor = state.dashboard?.monitors.find((item) => item.id === monitorId);
+      const performance = state.dashboard?.performance.find((item) => item.monitor_id === monitorId);
+      if (!monitor || !performance) {
+        context.innerHTML = "";
+        return;
+      }
+      const rate = (label, period) => `<span class="rate-chip"><span>${label} 胜率</span><strong>${period.win_rate === null ? "暂无" : `${period.win_rate}%`}</strong><span>回撤 ${period.max_drawdown === null ? "暂无" : `${period.max_drawdown}%`}</span></span>`;
+      context.innerHTML = `${rate("7D", performance.periods["7d"])}${rate("30D", performance.periods["30d"])}${rate("90D", performance.periods["90d"])}<a class="button small-button" href="${escapeHtml(monitor.url)}" target="_blank" rel="noreferrer">打开原链接</a>`;
+    }
+
+    function renderOperationSymbolSummary(operations) {
+      const summary = $("#operation-symbol-summary");
+      const symbol = $("#operation-symbol-filter").value;
+      if (!symbol) {
+        summary.innerHTML = "";
+        return;
+      }
+      const settled = operations.map((operation) => Number(operation.realized_profit || 0)).filter((profit) => Number.isFinite(profit) && profit !== 0);
+      const wins = settled.filter((profit) => profit > 0).length;
+      const losses = settled.length - wins;
+      const winRate = settled.length ? `${(wins / settled.length * 100).toFixed(1)}%` : "暂无";
+      summary.innerHTML = `<span class="rate-chip"><span>${escapeHtml(symbol)} 筛选历史</span><strong>胜率 ${winRate}</strong><span>共 ${operations.length} 条 · 已结算 ${settled.length} 条 · ${wins} 胜 / ${losses} 负</span></span>`;
+    }
+
+    function renderOperationBlockToggle() {
+      const target = $("#operation-block-toggle");
+      const monitorId = Number($("#operation-monitor-filter").value);
+      const symbol = $("#operation-symbol-filter").value;
+      const monitor = state.dashboard?.monitors.find((item) => item.id === monitorId);
+      if (!monitor || !symbol) {
+        target.innerHTML = "";
+        return;
+      }
+      const block = (state.dashboard.notification_blocks || []).find((item) => (
+        item.monitor_id === monitorId && item.symbol === symbol
+      ));
+      target.innerHTML = block
+        ? `<button class="button subtle small-button" type="button" data-operation-block-toggle data-id="${block.id}">解除 ${escapeHtml(symbol)} 通知屏蔽</button>`
+        : `<button class="button danger small-button" type="button" data-operation-block-toggle data-monitor-id="${monitorId}" data-symbol="${escapeHtml(symbol)}">快速屏蔽 ${escapeHtml(monitor.name)} + ${escapeHtml(symbol)}</button>`;
+    }
+
+    function applyOperationFilters() {
+      renderOperationFilters();
+      renderOperationContext();
+      const operations = selectedOperations();
+      renderOperationSymbolSummary(operations);
+      renderOperationBlockToggle();
+      renderOperations(operations);
+    }
+
+    function renderOperations(operations) {
+      $("#operations-timeline").innerHTML = operations.length ? operations.map((operation) => `<article class="operation-event"><time>${timelineTime(operation.occurred_at)}</time><div class="operation-detail">${actionHtml(operation)}<p class="operation-summary">${operationSummary(operation)}</p><div class="operation-monitor">${escapeHtml(operation.monitor_name)} · 参考杠杆 ${operation.reference_leverage ? `${escapeHtml(operation.reference_leverage)}x` : "暂无"} · ${notificationTag(operation.notification_status)}</div></div></article>`).join("") : '<div class="empty">当前筛选条件下没有操作记录</div>';
+    }
+
+    function formatPnl(items) {
+      return items.length ? items.map((item) => `${item.amount} ${item.asset}`).join(" · ") : "-";
+    }
+
+    function renderNotifications(attempts) {
+      $("#notification-history").innerHTML = attempts.length ? attempts.map((item) => `<div class="notification-item"><span class="tag ${item.status === "sent" ? "ok" : "error"}">${item.status === "sent" ? "已发送" : "失败"}</span><div><strong>${escapeHtml(item.message)}</strong><div class="small">${escapeHtml(item.channel_name || "系统测试")}${item.monitor_id ? ` · ${monitorLinkHtml(item.monitor_id, item.monitor_name || `已删除带单人 #${item.monitor_id}`)} · 监控 ID ${item.monitor_id}` : ""}</div></div><time class="small">${formatTime(item.created_at)}</time></div>`).join("") : '<div class="empty">暂无通知日志</div>';
+    }
+
+    function renderNotificationChannels(channels) {
+      const renderList = (kind, target, empty) => {
+        const items = channels.filter((channel) => channel.kind === kind);
+        $(target).innerHTML = items.length ? items.map((channel) => {
+          const active = channel.configured && channel.enabled;
+          const status = active ? "已启用" : channel.configured ? "已关闭" : "配置不完整";
+          const detail = kind === "telegram"
+            ? `Chat ID：${escapeHtml(channel.chat_id || "未配置")} · Token ${channel.bot_token_configured ? "已保存" : "未配置"}`
+            : `Webhook ${channel.webhook_configured ? "已保存" : "未配置"} · ${kind === "feishu" ? "签名" : "加签"}密钥 ${channel.secret_configured ? "已保存" : "未使用"}`;
+          return `<div class="notification-item"><span class="tag ${active ? "ok" : channel.configured ? "warning" : "error"}">${status}</span><div><strong>${escapeHtml(channel.name)}</strong><div class="small">${detail}</div></div><div class="actions"><label class="channel-switch"><input type="checkbox" data-channel-enabled data-id="${channel.id}" ${channel.enabled ? "checked" : ""}>启用</label><button class="button small-button" type="button" data-channel-test data-id="${channel.id}">测试</button><button class="button danger small-button" type="button" data-channel-delete data-id="${channel.id}">删除</button></div></div>`;
+        }).join("") : `<div class="empty">${empty}</div>`;
+      };
+      renderList("telegram", "#telegram-channel-list", "暂无已添加 Telegram Bot");
+      renderList("dingtalk", "#dingtalk-channel-list", "暂无钉钉机器人");
+      renderList("feishu", "#feishu-channel-list", "暂无飞书机器人");
+    }
+
+    function renderSystemLogs(logs) {
+      $("#system-log-history").innerHTML = logs.length ? logs.map((item) => `<div class="notification-item"><span class="tag ${item.level === "error" ? "error" : item.level === "warning" ? "warning" : "primary"}">${item.level === "error" ? "异常" : item.level === "warning" ? "警告" : "信息"}</span><div><strong>${escapeHtml(item.event)}</strong><div class="small">${escapeHtml(item.message)} · ${item.monitor_id ? `${monitorLinkHtml(item.monitor_id, item.monitor_name || `已删除带单人 #${item.monitor_id}`)} · 监控 ID ${item.monitor_id}` : "系统"}</div></div><time class="small">${formatTime(item.created_at)}</time></div>`).join("") : '<div class="empty">暂无系统日志</div>';
+    }
+
+    function renderEmail(settings) {
+      const active = settings.configured && settings.enabled;
+      $("#email-status").className = `tag ${active ? "ok" : settings.configured ? "warning" : "neutral"}`;
+      $("#email-status").textContent = active ? "已启用" : settings.configured ? "已关闭" : "未配置";
+      $("#email-host").value = settings.host || "";
+      $("#email-port").value = settings.port || 465;
+      $("#email-username").value = settings.username || "";
+      $("#email-from").value = settings.from_address || "";
+      $("#email-to").value = settings.to_address || "";
+      $("#email-security").value = settings.security || "ssl";
+      $("#email-password").placeholder = settings.password_configured ? "已保存，留空则不修改" : "请输入 SMTP 密码或授权码";
+      $("#email-enabled").checked = settings.enabled;
+      const listed = settings.host || settings.username || settings.to_address || settings.password_configured;
+      $("#email-channel-list").innerHTML = listed
+        ? `<div class="notification-item"><span class="tag ${active ? "ok" : settings.configured ? "warning" : "error"}">${active ? "已启用" : settings.configured ? "已关闭" : "配置不完整"}</span><div><strong>默认 SMTP 邮箱</strong><div class="small">收件人：${escapeHtml(settings.to_address || "未配置")} · SMTP：${escapeHtml(settings.host || "未配置")} · 密码 ${settings.password_configured ? "已保存" : "未配置"}</div></div><span class="small">在上方管理</span></div>`
+        : '<div class="empty">暂无已添加 SMTP 邮箱</div>';
+    }
+
+    function renderSession(settings) {
+      $("#session-ttl-hours").value = settings.session_ttl_hours;
+    }
+
+    function renderPollSettings(seconds) {
+      $("#poll-interval-seconds").value = seconds;
+    }
+
+    function setNotificationPanel(panel) {
+      document.querySelectorAll("[data-notification-panel]").forEach((button) => {
+        const active = button.dataset.notificationPanel === panel;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-selected", String(active));
+      });
+      document.querySelectorAll(".notification-panel").forEach((item) => {
+        item.classList.toggle("active", item.id === `notification-panel-${panel}`);
+      });
+    }
+
+    async function refreshDashboard(showMessage = false) {
+      try {
+        const data = await api("/api/dashboard");
+        state.dashboard = data;
+        setDashboardRefreshInterval(data.poll_interval_seconds);
+        renderOverview(data);
+        renderMonitorList(data.monitors, data.performance);
+        renderNotificationBlocks(data.notification_blocks || [], data.monitors);
+        if (state.operationsLoaded) renderOperationFilters();
+        applyOperationLinkFilters();
+        if (state.currentView === "operations") applyOperationFilters();
+        renderNotifications(data.notification_attempts);
+        renderSystemLogs(data.system_logs || []);
+        renderNotificationChannels(data.notification_channels || []);
+        renderEmail(data.email);
+        renderSession(data.session);
+        renderPollSettings(data.poll_interval_seconds);
+        if (showMessage) showToast("数据已刷新");
+      } catch (error) {
+        if (state.user) showToast(error.message, true);
+      }
+    }
+
+    async function loadOperations() {
+      try {
+        const result = await api("/api/operations?limit=5000");
+        state.operations = result.operations;
+        state.operationsLoaded = true;
+        if (state.dashboard) renderNotificationBlocks(state.dashboard.notification_blocks || [], state.dashboard.monitors);
+        renderOperationFilters();
+        applyOperationLinkFilters();
+        applyOperationFilters();
+      } catch (error) {
+        if (state.user) showToast(error.message, true);
+      }
+    }
+
+    function openMonitorDialog(monitor) {
+      $("#edit-monitor-id").value = monitor.id;
+      $("#edit-monitor-note").value = monitor.note || "";
+      $("#monitor-dialog").showModal();
+    }
+
+    function setMonitorAddMode(mode) {
+      const batch = mode === "batch";
+      $("#monitor-add-form").classList.toggle("hidden", batch);
+      $("#monitor-batch-form").classList.toggle("hidden", !batch);
+      document.querySelectorAll("[data-monitor-add-mode]").forEach((button) => {
+        const active = button.dataset.monitorAddMode === mode;
+        button.classList.toggle("primary", active);
+        button.classList.toggle("subtle", !active);
+      });
+    }
+
+    function setMonitorAddExpanded(expanded) {
+      $("#monitor-add-content").classList.toggle("hidden", !expanded);
+      $("#monitor-add-toggle").textContent = expanded ? "收起添加" : "新增监控";
+      $("#monitor-add-toggle").setAttribute("aria-expanded", String(expanded));
+    }
+
+    function extractMonitorUrls(text) {
+      const matches = text.match(/\b(?:https?:\/\/)?(?:www\.)?binance\.com\/[^\s<>"']+/gi) || [];
+      const urls = matches.map((url) => {
+        const match = url.match(/\/lead-details\/([A-Za-z0-9_-]{6,128})/i);
+        return match ? `https://www.binance.com/zh-CN/copy-trading/lead-details/${match[1]}` : null;
+      }).filter(Boolean);
+      return [...new Set(urls)];
+    }
+
+    $("#login-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        const result = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ username: $("#login-username").value, password: $("#login-password").value }) }, true);
+        showWorkspace(result.user);
+        await refreshDashboard();
+      } catch (error) {
+        showToast(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    $("#logout-button").addEventListener("click", async () => {
+      try { await api("/api/auth/logout", { method: "POST", body: "{}" }, true); } catch (_) {}
+      showLogin();
+    });
+
+    $("#monitor-add-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        const monitor = await api("/api/monitors", { method: "POST", body: JSON.stringify({ note: $("#add-monitor-note").value, url: $("#add-monitor-url").value }) });
+        $("#add-monitor-note").value = "";
+        showToast(`已添加 ${monitor.name}，已自动开始首次检查。`);
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+
+    document.querySelectorAll("[data-monitor-add-mode]").forEach((button) => button.addEventListener("click", () => setMonitorAddMode(button.dataset.monitorAddMode)));
+    $("#monitor-add-toggle").addEventListener("click", () => {
+      setMonitorAddExpanded($("#monitor-add-content").classList.contains("hidden"));
+    });
+
+    $("#monitor-batch-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      const urls = extractMonitorUrls($("#batch-monitor-urls").value);
+      if (!urls.length) return showToast("未识别到 Binance 带单员详情地址", true);
+      if (urls.length > 20) return showToast(`已识别 ${urls.length} 个地址，单次最多添加 20 个`, true);
+      $("#batch-monitor-urls").value = urls.join("\n");
+      button.disabled = true;
+      try {
+        const result = await api("/api/monitors/batch", { method: "POST", body: JSON.stringify({ note: $("#batch-monitor-note").value, urls }) });
+        const errors = result.errors || [];
+        const createdUrls = new Set((result.created || []).map((monitor) => monitor.url));
+        $("#batch-monitor-urls").value = urls.filter((url) => !createdUrls.has(url)).join("\n");
+        const details = errors.map((item) => `${item.url}：${item.detail}`).join("\n");
+        const resultBox = $("#batch-add-result");
+        resultBox.textContent = `已添加 ${result.created.length} 个地址${errors.length ? `，${errors.length} 个失败。\n${details}` : "。"}`;
+        resultBox.classList.toggle("error", Boolean(errors.length));
+        showToast(`批量添加完成：成功 ${result.created.length} 个，失败 ${errors.length} 个。首次检查已自动开始。`);
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+
+    $("#monitoring-list").addEventListener("click", async (event) => {
+      const button = event.target.closest("button[data-monitor-action]");
+      if (!button) return;
+      const monitor = state.dashboard?.monitors.find((item) => item.id === Number(button.dataset.id));
+      if (!monitor) return;
+      const action = button.dataset.monitorAction;
+      if (action === "edit") return openMonitorDialog(monitor);
+      if (action === "delete" && !confirm(`确认删除“${monitor.name}”及其全部记录？`)) return;
+      button.disabled = true;
+      try {
+        if (action === "check") {
+          const result = await api(`/api/monitors/${monitor.id}/check`, { method: "POST", body: "{}" });
+          showToast(result.status === "queued" ? "已加入后台检查队列，完成后页面会自动刷新。" : result.status === "baseline" ? `已建立 ${result.baseline_count} 条历史基线。` : result.status === "error" ? result.error : `检查完成，发现 ${result.new_count} 条新记录。`, result.status === "error");
+        }
+        if (action === "delete") await api(`/api/monitors/${monitor.id}`, { method: "DELETE" });
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+
+    $("#monitoring-list").addEventListener("change", async (event) => {
+      const select = event.target.closest("select[data-monitor-mode]");
+      if (!select) return;
+      const monitor = state.dashboard?.monitors.find((item) => item.id === Number(select.dataset.id));
+      if (!monitor) return;
+      select.disabled = true;
+      try {
+        await api(`/api/monitors/${monitor.id}`, { method: "PATCH", body: JSON.stringify({ mode: select.value }) });
+        showToast("监听状态已更新");
+        await refreshDashboard();
+      } catch (error) {
+        select.value = monitor.mode;
+        showToast(error.message, true);
+      } finally {
+        select.disabled = false;
+      }
+    });
+
+    $("#monitor-edit-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        await api(`/api/monitors/${$("#edit-monitor-id").value}`, { method: "PATCH", body: JSON.stringify({ note: $("#edit-monitor-note").value }) });
+        $("#monitor-dialog").close();
+        showToast("监控信息已更新");
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+
+    $("#notification-block-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        const block = await api("/api/notification-blocks", {
+          method: "POST",
+          body: JSON.stringify({ monitor_id: Number($("#notification-block-monitor").value), symbol: $("#notification-block-symbol").value }),
+        });
+        $("#notification-block-symbol").value = "";
+        showToast(`已屏蔽 ${block.monitor_name} 的 ${block.symbol} 通知`);
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+
+    $("#notification-block-list").addEventListener("click", async (event) => {
+      const button = event.target.closest("button[data-notification-block-remove]");
+      if (!button || !confirm("确认移除此通知屏蔽规则？后续新操作会恢复通知，历史已屏蔽操作不会补发。")) return;
+      button.disabled = true;
+      try {
+        await api(`/api/notification-blocks/${button.dataset.id}`, { method: "DELETE" });
+        showToast("通知屏蔽规则已移除");
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+
+    $("#operation-block-toggle").addEventListener("click", async (event) => {
+      const button = event.target.closest("button[data-operation-block-toggle]");
+      if (!button) return;
+      button.disabled = true;
+      try {
+        if (button.dataset.id) {
+          await api(`/api/notification-blocks/${button.dataset.id}`, { method: "DELETE" });
+          showToast("通知屏蔽已解除，后续新操作会恢复通知");
+        } else {
+          await api("/api/notification-blocks", {
+            method: "POST",
+            body: JSON.stringify({ monitor_id: Number(button.dataset.monitorId), symbol: button.dataset.symbol }),
+          });
+          showToast("该带单人和合约的通知已屏蔽");
+        }
+        await refreshDashboard();
+        await loadOperations();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+
+    $("#dialog-close").addEventListener("click", () => $("#monitor-dialog").close());
+    $("#dialog-cancel").addEventListener("click", () => $("#monitor-dialog").close());
+    $("#monitor-keyword-filter").addEventListener("input", () => {
+      if (state.dashboard) renderMonitorList(state.dashboard.monitors, state.dashboard.performance);
+    });
+    $("#monitor-mode-filter").addEventListener("change", () => {
+      if (state.dashboard) renderMonitorList(state.dashboard.monitors, state.dashboard.performance);
+    });
+    $("#operation-time-filter").addEventListener("change", applyOperationFilters);
+    $("#operation-monitor-filter").addEventListener("change", applyOperationFilters);
+    $("#operation-action-filter").addEventListener("change", applyOperationFilters);
+    $("#operation-symbol-filter").addEventListener("change", applyOperationFilters);
+    $("#operation-notification-filter").addEventListener("change", applyOperationFilters);
+    $("#operation-keyword-filter").addEventListener("input", applyOperationFilters);
+    $("#operations-refresh").addEventListener("click", loadOperations);
+    $("#operations-clear").addEventListener("click", async (event) => {
+      if (!confirm("确认清理所有已获取的历史操作记录？监控将保留近 30 天去重基线，旧成交不会重新写入或触发通知。")) return;
+      event.currentTarget.disabled = true;
+      try {
+        const result = await api("/api/operations", { method: "DELETE" });
+        state.operations = [];
+        showToast(`已清理 ${result.deleted_count} 条历史操作记录`);
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); }
+      finally { event.currentTarget.disabled = false; }
+    });
+    $("#overview-refresh").addEventListener("click", () => refreshDashboard(true));
+
+    $("#telegram-channel-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        await api("/api/notification-channels", { method: "POST", body: JSON.stringify({
+          kind: "telegram",
+          name: $("#telegram-channel-name").value,
+          bot_token: $("#telegram-channel-token").value,
+          chat_id: $("#telegram-channel-chat-id").value,
+          enabled: $("#telegram-channel-enabled").checked,
+        }) });
+        $("#telegram-channel-name").value = "";
+        $("#telegram-channel-token").value = "";
+        $("#telegram-channel-chat-id").value = "";
+        showToast("Telegram Bot 已添加");
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+
+    $("#dingtalk-channel-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        await api("/api/notification-channels", { method: "POST", body: JSON.stringify({
+          kind: "dingtalk",
+          name: $("#dingtalk-channel-name").value,
+          webhook_url: $("#dingtalk-channel-webhook").value,
+          secret: $("#dingtalk-channel-secret").value,
+          enabled: $("#dingtalk-channel-enabled").checked,
+        }) });
+        $("#dingtalk-channel-name").value = "";
+        $("#dingtalk-channel-webhook").value = "";
+        $("#dingtalk-channel-secret").value = "";
+        showToast("钉钉机器人已添加");
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+
+    $("#feishu-channel-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        await api("/api/notification-channels", { method: "POST", body: JSON.stringify({
+          kind: "feishu",
+          name: $("#feishu-channel-name").value,
+          webhook_url: $("#feishu-channel-webhook").value,
+          secret: $("#feishu-channel-secret").value,
+          enabled: $("#feishu-channel-enabled").checked,
+        }) });
+        $("#feishu-channel-name").value = "";
+        $("#feishu-channel-webhook").value = "";
+        $("#feishu-channel-secret").value = "";
+        showToast("飞书机器人已添加");
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+
+    $("#email-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        await api("/api/settings/email", { method: "POST", body: JSON.stringify({
+          host: $("#email-host").value,
+          port: Number($("#email-port").value),
+          username: $("#email-username").value,
+          password: $("#email-password").value,
+          from_address: $("#email-from").value,
+          to_address: $("#email-to").value,
+          security: $("#email-security").value,
+          enabled: $("#email-enabled").checked,
+        }) });
+        $("#email-password").value = "";
+        showToast("SMTP 邮箱配置已保存");
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+
+    $("#test-email").addEventListener("click", async (event) => {
+      event.currentTarget.disabled = true;
+      try { const result = await api("/api/email/test", { method: "POST", body: "{}" }); showToast(result.message); await refreshDashboard(); }
+      catch (error) { showToast(error.message, true); }
+      finally { event.currentTarget.disabled = false; }
+    });
+
+    $("#session-settings-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        const result = await api("/api/settings/session", { method: "POST", body: JSON.stringify({ session_ttl_hours: Number($("#session-ttl-hours").value) }) });
+        showToast(result.message);
+        showLogin();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+
+    $("#poll-settings-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        const result = await api("/api/settings/poll", {
+          method: "POST",
+          body: JSON.stringify({ poll_interval_seconds: Number($("#poll-interval-seconds").value) }),
+        });
+        showToast(`轮询周期已更新为 ${result.poll_interval_seconds} 秒，将在下一轮生效`);
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+
+    $("#password-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        const result = await api("/api/auth/password", { method: "POST", body: JSON.stringify({ current_password: $("#current-password").value, new_password: $("#new-password").value }) });
+        showToast(result.message);
+        showLogin();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+
+    $("#reset-record-state").addEventListener("click", async (event) => {
+      if (!confirm("确认重置全部操作和通知发送状态？监控源、备注、监听模式与通知配置会保留；启用源将重新建立 7 天基线且不补发通知。")) return;
+      event.currentTarget.disabled = true;
+      try {
+        const result = await api("/api/operations/reset", { method: "POST", body: "{}" });
+        state.operations = [];
+        showToast(`已重置 ${result.operation_count} 条操作和 ${result.notification_count} 条通知记录，${result.queued_count} 个启用源正在重建基线。`);
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); }
+      finally { event.currentTarget.disabled = false; }
+    });
+
+    $("#clear-logs").addEventListener("click", async (event) => {
+      if (!confirm("确认清空所有通知发送日志和系统运行日志？此操作无法恢复。")) return;
+      event.currentTarget.disabled = true;
+      try {
+        const result = await api("/api/logs", { method: "DELETE" });
+        showToast(`已清空 ${result.notification_count} 条通知日志和 ${result.system_log_count} 条系统日志。`);
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); }
+      finally { event.currentTarget.disabled = false; }
+    });
+
+    document.addEventListener("click", (event) => {
+      const operationHistory = event.target.closest("button[data-operation-history]");
+      if (operationHistory) {
+        state.operationLinkHash = "";
+        const parameters = new URLSearchParams({ "monitor-id": operationHistory.dataset.id, "symbol-link": operationHistory.dataset.symbol });
+        history.replaceState(null, "", `#operations?${parameters.toString()}`);
+        navigate("operations", false);
+        return;
+      }
+      const monitorName = event.target.closest("button[data-monitor-operations]");
+      if (!monitorName) return;
+      state.operationLinkHash = "";
+      history.replaceState(null, "", `#operations?monitor-id=${encodeURIComponent(monitorName.dataset.id)}`);
+      navigate("operations", false);
+    });
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest("button[data-channel-test], button[data-channel-delete]");
+      if (!button) return;
+      const channelId = Number(button.dataset.id);
+      if (button.matches("[data-channel-delete]") && !confirm("确认删除此通知渠道？")) return;
+      button.disabled = true;
+      try {
+        if (button.matches("[data-channel-test]")) {
+          const result = await api(`/api/notification-channels/${channelId}/test`, { method: "POST", body: "{}" });
+          showToast(result.message);
+        } else {
+          await api(`/api/notification-channels/${channelId}`, { method: "DELETE" });
+          showToast("通知渠道已删除");
+        }
+        await refreshDashboard();
+      } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    });
+    document.addEventListener("change", async (event) => {
+      const checkbox = event.target.closest("input[data-channel-enabled]");
+      if (!checkbox) return;
+      checkbox.disabled = true;
+      try {
+        await api(`/api/notification-channels/${checkbox.dataset.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ enabled: checkbox.checked }),
+        });
+        showToast(checkbox.checked ? "通知渠道已启用" : "通知渠道已关闭");
+        await refreshDashboard();
+      } catch (error) {
+        checkbox.checked = !checkbox.checked;
+        showToast(error.message, true);
+      } finally { checkbox.disabled = false; }
+    });
+    document.querySelectorAll("[data-notification-panel]").forEach((button) => button.addEventListener("click", () => setNotificationPanel(button.dataset.notificationPanel)));
+    document.querySelectorAll(".nav-button").forEach((button) => button.addEventListener("click", () => navigate(button.dataset.view)));
+    document.querySelectorAll("[data-go]").forEach((button) => button.addEventListener("click", () => navigate(button.dataset.go)));
+    window.addEventListener("hashchange", () => state.user && navigate(hashRoute().view, false));
+
+    (async () => {
+      try {
+        const result = await api("/api/auth/me", {}, true);
+        if (result.user) { showWorkspace(result.user); await refreshDashboard(); }
+        else showLogin();
+      } catch (_) { showLogin(); }
+    })();
+  </script>
+</body>
+</html>
