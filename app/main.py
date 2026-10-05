@@ -2598,7 +2598,7 @@ def dashboard_monitor_url(monitor: dict[str, Any]) -> str | None:
 
 def error_alert_content(
     monitor: dict[str, Any] | None, event: str, message: str
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     monitor_id = monitor.get("id") if monitor else None
     monitor_name = str(monitor.get("name") or "未命名带单人") if monitor else "系统"
     target = f"{monitor_name}（监控 ID: {monitor_id}）" if monitor_id is not None else monitor_name
@@ -2606,7 +2606,15 @@ def error_alert_content(
     monitor_url = dashboard_monitor_url(monitor) if monitor else None
     if monitor_url:
         lines.append(f"操作记录: {monitor_url}")
-    return f"[策略监控异常] {target} {event}", "\n".join(lines)
+    markdown_sections = [
+        f"### ⚠️ 策略监控异常",
+        f"👤 **{target}** · 事件：{event}",
+        "> " + "\n> ".join(message.splitlines()),
+    ]
+    if monitor_url:
+        markdown_sections.append(f"> [操作记录]({monitor_url})")
+    markdown_text = "\n\n".join(markdown_sections)
+    return f"[策略监控异常] {target} {event}", "\n".join(lines), markdown_text
 
 
 def notification_action(operation: dict[str, Any]) -> str:
@@ -2699,7 +2707,7 @@ def format_operation_notification(
     performance: dict[str, Any] | None,
     *,
     trade_alert: bool = False,
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     action = notification_action(operation)
     amount = f"{operation['qty']} {operation['base_asset']}".strip()
     symbol = str(operation["symbol"])
@@ -2754,7 +2762,63 @@ def format_operation_notification(
         "<b>带单人表现:</b>",
         *(html.escape(line) for line in period_lines),
     ]
-    return "\n".join(lines), "\n".join(html_lines)
+    markdown_text = markdown_operation_notification(
+        trade_alert=trade_alert,
+        name=str(monitor["name"]),
+        action=action,
+        symbol=symbol,
+        time_text=format_operation_time(operation["occurred_at"]),
+        amount=amount,
+        price=str(operation["price"]),
+        total=str(operation["quantity"]),
+        position_line=position_line,
+        leverage_text=f"{leverage}x" if leverage else "暂无",
+        realized_profit_text=notification_realized_profit(operation),
+        finance_lines=finance_lines,
+        period_lines=period_lines,
+    )
+    return "\n".join(lines), "\n".join(html_lines), markdown_text
+
+
+def markdown_operation_notification(
+    *,
+    trade_alert: bool,
+    name: str,
+    action: str,
+    symbol: str,
+    time_text: str,
+    amount: str,
+    price: str,
+    total: str,
+    position_line: str | None,
+    leverage_text: str,
+    realized_profit_text: str,
+    finance_lines: list[str],
+    period_lines: list[str],
+) -> str:
+    """钉钉 markdown 版通知：### 标题 + 列表 + 引用，仅用钉钉机器人支持的语法子集。"""
+    alert_prefix = "⚡ " if trade_alert else ""
+    note_line = (
+        "> ⚡ 分笔成交预警：官方订单记录将在 Binance 返回后同步\n\n" if trade_alert else ""
+    )
+    bullets = [
+        f"- 📦 数量：{amount}",
+        f"- 💰 均价：{price} USDT",
+        f"- 🧮 总值：{total} USDT",
+        *([f"- 📌 {position_line}"] if position_line else []),
+        f"- ⚙️ 参考杠杆：{leverage_text}",
+        f"- 💵 本次实现盈亏：{realized_profit_text}",
+    ]
+    sections = [
+        f"### {alert_prefix}{action} · {symbol}",
+        f"{note_line}👤 **{name}** · 🕒 {time_text}",
+        "\n".join(bullets),
+    ]
+    if finance_lines:
+        sections.append("🏦 **资产规模**\n\n" + "\n\n".join(f"> {line}" for line in finance_lines))
+    if period_lines:
+        sections.append("📊 **带单人表现**\n\n" + "\n\n".join(f"> {line}" for line in period_lines))
+    return "\n\n".join(sections)
 
 
 def notification_operation_details(operation: dict[str, Any]) -> str:
@@ -2832,7 +2896,9 @@ async def send_telegram_channel_message(
         raise PollError("Telegram 拒绝了通知请求")
 
 
-async def send_dingtalk_message(app: FastAPI, channel: dict[str, Any], title: str, text: str) -> None:
+async def send_dingtalk_message(
+    app: FastAPI, channel: dict[str, Any], title: str, text: str, *, markdown: bool = False
+) -> None:
     config = channel["config"]
     webhook_url = validate_dingtalk_webhook_url(str(config.get("webhook_url") or ""))
     parameters = parse_qsl(urlparse(webhook_url).query, keep_blank_values=True)
@@ -2844,9 +2910,10 @@ async def send_dingtalk_message(app: FastAPI, channel: dict[str, Any], title: st
             hmac.new(secret.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256).digest()
         ).decode("ascii")
         parameters.extend((("timestamp", timestamp), ("sign", signature)))
+    body = text if markdown else f"### {title}\n\n{text.replace(chr(10), chr(10) * 2)}"
     payload = {
         "msgtype": "markdown",
-        "markdown": {"title": title[:100], "text": f"### {title}\n\n{text.replace(chr(10), chr(10) * 2)}"},
+        "markdown": {"title": title[:100], "text": body},
     }
     try:
         response = await app.state.http.post(webhook_url, params=parameters, json=payload)
@@ -2927,6 +2994,7 @@ async def send_extra_notification_channels(
     text: str,
     html_text: str | None,
     details: str,
+    markdown_text: str | None = None,
 ) -> list[str]:
     errors = []
     for channel in app.state.store.enabled_extra_notification_channels():
@@ -2937,7 +3005,13 @@ async def send_extra_notification_channels(
                     app, channel, html_text or text, "HTML" if html_text else None
                 )
             elif channel["kind"] == "dingtalk":
-                await send_dingtalk_message(app, channel, subject, text)
+                await send_dingtalk_message(
+                    app,
+                    channel,
+                    subject,
+                    markdown_text if markdown_text is not None else text,
+                    markdown=markdown_text is not None,
+                )
             else:
                 await send_feishu_message(app, channel, subject, text)
             app.state.store.log_notification(monitor_id, "sent", f"{label} 已发送：{details}", label)
@@ -3029,7 +3103,7 @@ async def send_error_alert(
     if not telegram_enabled and not email_enabled and not app.state.store.enabled_extra_notification_channels():
         return
     monitor_id = monitor.get("id") if monitor else None
-    subject, text = error_alert_content(monitor, event, message)
+    subject, text, markdown_text = error_alert_content(monitor, event, message)
     if telegram_enabled:
         try:
             await send_telegram_text(app, text)
@@ -3054,7 +3128,9 @@ async def send_error_alert(
                 f"异常告警邮件发送失败: {safe_error(error)}",
                 "SMTP 邮箱",
             )
-    await send_extra_notification_channels(app, monitor_id, subject, text, None, "异常告警")
+    await send_extra_notification_channels(
+        app, monitor_id, subject, text, None, "异常告警", markdown_text
+    )
 
 
 async def deliver_pending_operations(app: FastAPI, monitor: dict[str, Any]) -> dict[str, Any]:
@@ -3084,7 +3160,7 @@ async def deliver_pending_operations(app: FastAPI, monitor: dict[str, Any]) -> d
         if app.state.store.is_notification_blocked(monitor["id"], operation["symbol"]):
             app.state.store.mark_operations_blocked(monitor["id"], [operation["operation_key"]])
             continue
-        text, html_text = format_operation_notification(monitor, operation, performance)
+        text, html_text, markdown_text = format_operation_notification(monitor, operation, performance)
         action = operation_action(
             operation["side"], operation["position_side"], operation.get("realized_profit")
         )[0]
@@ -3120,7 +3196,7 @@ async def deliver_pending_operations(app: FastAPI, monitor: dict[str, Any]) -> d
                 )
         errors.extend(
             await send_extra_notification_channels(
-                app, monitor["id"], subject, text, html_text, details
+                app, monitor["id"], subject, text, html_text, details, markdown_text
             )
         )
         if errors:
@@ -3163,7 +3239,7 @@ async def deliver_pending_trade_alerts(app: FastAPI, monitor: dict[str, Any]) ->
         if app.state.store.is_notification_blocked(monitor["id"], alert["symbol"]):
             app.state.store.mark_trade_alerts_blocked(monitor["id"], [alert["alert_key"]])
             continue
-        text, html_text = format_operation_notification(
+        text, html_text, markdown_text = format_operation_notification(
             monitor, alert, performance, trade_alert=True
         )
         subject = (
@@ -3201,7 +3277,7 @@ async def deliver_pending_trade_alerts(app: FastAPI, monitor: dict[str, Any]) ->
                 )
         errors.extend(
             await send_extra_notification_channels(
-                app, monitor["id"], subject, text, html_text, f"成交预警 {details}"
+                app, monitor["id"], subject, text, html_text, f"成交预警 {details}", markdown_text
             )
         )
         if errors:

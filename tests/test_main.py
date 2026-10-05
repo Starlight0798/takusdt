@@ -258,12 +258,19 @@ class MainTests(unittest.TestCase):
         self.assertEqual(safe_error(ValueError("invalid monitor state")), "ValueError：invalid monitor state")
 
     def test_error_alert_identifies_the_monitor_and_links_to_its_operations(self) -> None:
-        subject, text = error_alert_content(
+        subject, text, markdown_text = error_alert_content(
             {"id": 7, "name": "Leader"}, "Binance 查询", "TimeoutError：timed out"
         )
         self.assertIn("Leader（监控 ID: 7）", subject)
         self.assertIn("对象: Leader（监控 ID: 7）", text)
         self.assertIn("操作记录: https://monitor.example.com/#operations?monitor-name=Leader&monitor-id=7", text)
+        self.assertIn("### ⚠️ 策略监控异常", markdown_text)
+        self.assertIn("👤 **Leader（监控 ID: 7）** · 事件：Binance 查询", markdown_text)
+        self.assertIn("> TimeoutError：timed out", markdown_text)
+        self.assertIn(
+            "[操作记录](https://monitor.example.com/#operations?monitor-name=Leader&monitor-id=7)",
+            markdown_text,
+        )
 
     def test_dashboard_groups_all_current_monitor_errors_and_log_sources(self) -> None:
         with tempfile.TemporaryDirectory() as directory, patch.dict(
@@ -397,8 +404,10 @@ class MainTests(unittest.TestCase):
         async def fake_telegram(_, channel, text: str, parse_mode=None) -> None:
             sent_channels.append((channel["kind"], channel["name"], text, parse_mode))
 
-        async def fake_dingtalk(_, channel, title: str, text: str) -> None:
-            sent_channels.append((channel["kind"], channel["name"], title, text))
+        async def fake_dingtalk(
+            _, channel, title: str, text: str, *, markdown: bool = False
+        ) -> None:
+            sent_channels.append((channel["kind"], channel["name"], title, text, markdown))
 
         async def fake_feishu(_, channel, title: str, text: str) -> None:
             sent_channels.append((channel["kind"], channel["name"], title, text))
@@ -436,14 +445,29 @@ class MainTests(unittest.TestCase):
                         app, None, "标题", "纯文本", "<b>HTML</b>", "操作详情"
                     )
                 )
+                errors.extend(
+                    asyncio.run(
+                        send_extra_notification_channels(
+                            app,
+                            None,
+                            "标题",
+                            "纯文本",
+                            "<b>HTML</b>",
+                            "操作详情",
+                            "### 纯文本",
+                        )
+                    )
+                )
 
             attempts = store.notification_attempts()
             store.close()
             self.assertEqual(errors, [])
             self.assertEqual(
-                {(kind, name) for kind, name, _, _ in sent_channels},
+                {(kind, name) for kind, name, *_ in sent_channels},
                 {("telegram", "交易群"), ("dingtalk", "钉钉群"), ("feishu", "飞书群")},
             )
+            self.assertIn(("dingtalk", "钉钉群", "标题", "### 纯文本", True), sent_channels)
+            self.assertIn(("dingtalk", "钉钉群", "标题", "纯文本", False), sent_channels)
             self.assertEqual(
                 {item["channel_name"] for item in attempts},
                 {"Telegram · 交易群", "钉钉 · 钉钉群", "飞书 · 飞书群"},
@@ -1408,7 +1432,7 @@ class MainTests(unittest.TestCase):
                 "90d": {"win_rate": 60.0, "max_drawdown": None},
             }
         }
-        text, html_text = format_operation_notification(
+        text, html_text, markdown_text = format_operation_notification(
             {
                 "id": 7,
                 "name": "Leader",
@@ -1435,6 +1459,12 @@ class MainTests(unittest.TestCase):
         self.assertIn("30D 胜率: 75.0% | 收益率: +16.60% | 最大回撤: 2.5%", text)
         self.assertIn("90D 胜率: 60.0% | 收益率: 暂无 | 最大回撤: 暂无", text)
         self.assertIn("30D 已实现盈亏：3030.76 USDT · 保守胜率：66.7%", text)
+        self.assertIn("### ↘ 平多 · XAUUSDT", markdown_text)
+        self.assertIn("👤 **Leader** · 🕒 ", markdown_text)
+        self.assertIn("- 📦 数量：", markdown_text)
+        self.assertIn("- 💵 本次实现盈亏：+3.5 USDT", markdown_text)
+        self.assertIn("> 带单余额: 18,256.38 USDT", markdown_text)
+        self.assertIn("> 30D 胜率: 75.0% | 收益率: +16.60% | 最大回撤: 2.5%", markdown_text)
         self.assertNotIn("带单地址", text)
         self.assertNotIn("UTC+8", text)
         self.assertNotIn("<a ", html_text)
@@ -1444,7 +1474,7 @@ class MainTests(unittest.TestCase):
             "position_side": "LONG",
             "realized_profit": "0",
         }
-        open_text, open_html = format_operation_notification(
+        open_text, open_html, open_markdown = format_operation_notification(
             {
                 "id": 7,
                 "name": "Leader",
@@ -1456,8 +1486,9 @@ class MainTests(unittest.TestCase):
         )
         self.assertIn("仓位: 161.6 USDT/千U余额", open_text)
         self.assertIn("仓位: 161.6 USDT/千U余额", open_html)
+        self.assertIn("- 📌 仓位: 161.6 USDT/千U余额", open_markdown)
         self.assertNotIn("仓位:", text)
-        no_data_text, _ = format_operation_notification(
+        no_data_text, _, no_data_markdown = format_operation_notification(
             {"name": "Leader", "url": SOURCE_URL},
             {**operation, "reference_leverage": None, "realized_profit": "0"},
             None,
@@ -1466,14 +1497,17 @@ class MainTests(unittest.TestCase):
         self.assertIn("本次实现盈亏: 暂无", no_data_text)
         self.assertNotIn("带单余额", no_data_text)
         self.assertNotIn("资产管理规模", no_data_text)
+        self.assertNotIn("资产规模", no_data_markdown)
 
         with patch("app.main.DASHBOARD_BASE_URL", ""):
-            plain_text, plain_html = format_operation_notification(
+            plain_text, plain_html, _ = format_operation_notification(
                 {"id": 7, "name": "Leader", "url": SOURCE_URL}, operation, performance
             )
-            _, alert_text = error_alert_content({"id": 7, "name": "Leader"}, "订单查询", "boom")
+            _, alert_text, alert_markdown = error_alert_content(
+                {"id": 7, "name": "Leader"}, "订单查询", "boom"
+            )
         self.assertIn("带单人: Leader" + chr(10), plain_text)
-        self.assertNotIn("#operations", plain_text + plain_html + alert_text)
+        self.assertNotIn("#operations", plain_text + plain_html + alert_text + alert_markdown)
 
     def test_order_history_response_without_success_flag_is_accepted(self) -> None:
         async def handler(request: httpx.Request) -> httpx.Response:
