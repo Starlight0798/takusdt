@@ -2648,6 +2648,20 @@ def format_finance_amount(value: Any) -> str | None:
     return f"{quantized:,} USDT"
 
 
+
+def format_md_amount(raw: Any) -> str:
+    """markdown 版金额：千分位 + 适度小数位，便于扫读。"""
+    value = decimal_value(raw)
+    if value is None or not value.is_finite():
+        return str(raw)
+    magnitude = abs(value)
+    if magnitude >= 1000:
+        return f"{value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):,}"
+    if magnitude >= 1:
+        text = f"{value.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP):,}"
+        return text.rstrip("0").rstrip(".")
+    return str(raw)
+
 def notification_period_roi(period: dict[str, Any]) -> str:
     raw = period.get("roi")
     if raw is None:
@@ -2658,19 +2672,30 @@ def notification_period_roi(period: dict[str, Any]) -> str:
     return f"{'+' if roi > 0 else ''}{roi.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)}%"
 
 
-def notification_period_lines(performance: dict[str, Any] | None) -> list[str]:
+def notification_period_rows(
+    performance: dict[str, Any] | None,
+) -> list[tuple[str, str, str, str]]:
+    """(标签, 胜率, 收益率, 最大回撤) 展示文本，纯文本与 markdown 渲染共用。"""
     periods = performance.get("periods", {}) if performance else {}
-    lines = []
+    rows = []
     for label, key in (("7D", "7d"), ("30D", "30d"), ("90D", "90d")):
         period = periods.get(key, {})
         win_rate = period.get("win_rate")
         drawdown = period.get("max_drawdown")
-        roi = notification_period_roi(period)
-        lines.append(
-            f"{label} 胜率: {f'{win_rate}%' if win_rate is not None else '暂无'}"
-            f" | 收益率: {roi}"
-            f" | 最大回撤: {f'{drawdown}%' if drawdown is not None else '暂无'}"
+        rows.append(
+            (
+                label,
+                f"{win_rate}%" if win_rate is not None else "暂无",
+                notification_period_roi(period),
+                f"{drawdown}%" if drawdown is not None else "暂无",
+            )
         )
+    return rows
+
+
+def notification_period_pnl(performance: dict[str, Any] | None) -> tuple[str, str]:
+    """(30D 已实现盈亏文本, 保守胜率文本)"""
+    periods = performance.get("periods", {}) if performance else {}
     current = periods.get("30d", {})
     pnl = current.get("pnl") or []
     pnl_text = " · ".join(
@@ -2679,11 +2704,20 @@ def notification_period_lines(performance: dict[str, Any] | None) -> list[str]:
         if isinstance(item, dict) and item.get("amount") is not None and item.get("asset")
     ) or "暂无"
     conservative_win_rate = current.get("conservative_win_rate")
-    lines.append(
-        f"30D 已实现盈亏：{pnl_text} · 保守胜率："
-        f"{f'{conservative_win_rate}%' if conservative_win_rate is not None else '暂无'}"
+    conservative_text = (
+        f"{conservative_win_rate}%" if conservative_win_rate is not None else "暂无"
     )
-    return lines
+    return pnl_text, conservative_text
+
+
+def notification_period_lines(performance: dict[str, Any] | None) -> list[str]:
+    return [
+        f"{label} 胜率: {win_rate} | 收益率: {roi} | 最大回撤: {drawdown}"
+        for label, win_rate, roi, drawdown in notification_period_rows(performance)
+    ] + [
+        f"30D 已实现盈亏：{pnl_text} · 保守胜率：{conservative_text}"
+        for pnl_text, conservative_text in [notification_period_pnl(performance)]
+    ]
 
 
 def open_position_line(
@@ -2724,10 +2758,11 @@ def format_operation_notification(
     source_note = "说明: 此为分笔成交预警，官方订单记录将在 Binance 返回后同步。"
     margin_balance_text = format_finance_amount(monitor.get("margin_balance"))
     aum_amount_text = format_finance_amount(monitor.get("aum_amount"))
-    finance_lines = [
-        *( [f"带单余额: {margin_balance_text}"] if margin_balance_text else [] ),
-        *( [f"资产管理规模: {aum_amount_text}"] if aum_amount_text else [] ),
+    finance_rows = [
+        *( [("带单余额", margin_balance_text)] if margin_balance_text else [] ),
+        *( [("资产管理规模", aum_amount_text)] if aum_amount_text else [] ),
     ]
+    finance_lines = [f"{label}: {value}" for label, value in finance_rows]
     lines = [
         heading,
         *([source_note] if trade_alert else []),
@@ -2769,13 +2804,14 @@ def format_operation_notification(
         symbol=symbol,
         time_text=format_operation_time(operation["occurred_at"]),
         amount=amount,
-        price=str(operation["price"]),
-        total=str(operation["quantity"]),
+        price_text=format_md_amount(operation["price"]),
+        total_text=format_md_amount(operation["quantity"]),
         position_line=position_line,
         leverage_text=f"{leverage}x" if leverage else "暂无",
         realized_profit_text=notification_realized_profit(operation),
-        finance_lines=finance_lines,
-        period_lines=period_lines,
+        finance_rows=finance_rows,
+        period_rows=notification_period_rows(performance),
+        pnl_row=notification_period_pnl(performance),
     )
     return "\n".join(lines), "\n".join(html_lines), markdown_text
 
@@ -2788,36 +2824,54 @@ def markdown_operation_notification(
     symbol: str,
     time_text: str,
     amount: str,
-    price: str,
-    total: str,
+    price_text: str,
+    total_text: str,
     position_line: str | None,
     leverage_text: str,
     realized_profit_text: str,
-    finance_lines: list[str],
-    period_lines: list[str],
+    finance_rows: list[tuple[str, str]],
+    period_rows: list[tuple[str, str, str, str]],
+    pnl_row: tuple[str, str],
 ) -> str:
     """钉钉 markdown 版通知：### 标题 + 列表 + 引用，仅用钉钉机器人支持的语法子集。"""
+
+    def value(text: str) -> str:
+        return text if text == "暂无" else f"**{text}**"
+
     alert_prefix = "⚡ " if trade_alert else ""
     note_line = (
         "> ⚡ 分笔成交预警：官方订单记录将在 Binance 返回后同步\n\n" if trade_alert else ""
     )
+    position_bullet = (
+        [f"- 📌 仓位：{value(position_line.split(': ', 1)[1])}"] if position_line else []
+    )
     bullets = [
         f"- 📦 数量：{amount}",
-        f"- 💰 均价：{price} USDT",
-        f"- 🧮 总值：{total} USDT",
-        *([f"- 📌 {position_line}"] if position_line else []),
-        f"- ⚙️ 参考杠杆：{leverage_text}",
-        f"- 💵 本次实现盈亏：{realized_profit_text}",
+        f"- 💰 均价：{value(price_text)} USDT",
+        f"- 🧮 总值：{value(total_text)} USDT",
+        *position_bullet,
+        f"- ⚙️ 参考杠杆：{value(leverage_text)}",
+        f"- 💵 本次实现盈亏：{value(realized_profit_text)}",
     ]
+    performance_quotes = [
+        f"> {label}　胜率 {value(win_rate)} ｜ 收益率 {value(roi)} ｜ 回撤 {drawdown}"
+        for label, win_rate, roi, drawdown in period_rows
+    ]
+    pnl_text, conservative_text = pnl_row
+    performance_quotes.append(
+        f"> 30D 已实现盈亏 {value(pnl_text)} · 保守胜率 {conservative_text}"
+    )
     sections = [
         f"### {alert_prefix}{action} · {symbol}",
-        f"{note_line}👤 **{name}** · 🕒 {time_text}",
+        f"{note_line}👤 **{name}**",
+        f"🕒 {time_text}",
         "\n".join(bullets),
     ]
-    if finance_lines:
-        sections.append("🏦 **资产规模**\n\n" + "\n\n".join(f"> {line}" for line in finance_lines))
-    if period_lines:
-        sections.append("📊 **带单人表现**\n\n" + "\n\n".join(f"> {line}" for line in period_lines))
+    if finance_rows:
+        finance_quotes = "\n\n".join(f"> {label}：**{amount_text}**" for label, amount_text in finance_rows)
+        sections.append(f"🏦 **资产规模**\n\n{finance_quotes}")
+    if period_rows:
+        sections.append("📊 **带单人表现**\n\n" + "\n\n".join(performance_quotes))
     return "\n\n".join(sections)
 
 

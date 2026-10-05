@@ -1460,11 +1460,17 @@ class MainTests(unittest.TestCase):
         self.assertIn("90D 胜率: 60.0% | 收益率: 暂无 | 最大回撤: 暂无", text)
         self.assertIn("30D 已实现盈亏：3030.76 USDT · 保守胜率：66.7%", text)
         self.assertIn("### ↘ 平多 · XAUUSDT", markdown_text)
-        self.assertIn("👤 **Leader** · 🕒 ", markdown_text)
-        self.assertIn("- 📦 数量：", markdown_text)
-        self.assertIn("- 💵 本次实现盈亏：+3.5 USDT", markdown_text)
-        self.assertIn("> 带单余额: 18,256.38 USDT", markdown_text)
-        self.assertIn("> 30D 胜率: 75.0% | 收益率: +16.60% | 最大回撤: 2.5%", markdown_text)
+        self.assertIn("👤 **Leader**\n\n🕒 ", markdown_text)
+        self.assertIn("- 📦 数量：0.632 XAU", markdown_text)
+        self.assertIn("- 💰 均价：**4,667.13** USDT", markdown_text)
+        self.assertIn("- 🧮 总值：**2,949.63** USDT", markdown_text)
+        self.assertIn("- ⚙️ 参考杠杆：**12x**", markdown_text)
+        self.assertIn("- 💵 本次实现盈亏：**+3.5 USDT**", markdown_text)
+        self.assertIn("> 带单余额：**18,256.38 USDT**", markdown_text)
+        self.assertIn("> 资产管理规模：**25,212.35 USDT**", markdown_text)
+        self.assertIn("> 30D　胜率 **75.0%** ｜ 收益率 **+16.60%** ｜ 回撤 2.5%", markdown_text)
+        self.assertIn("> 90D　胜率 **60.0%** ｜ 收益率 暂无 ｜ 回撤 暂无", markdown_text)
+        self.assertIn("> 30D 已实现盈亏 **3030.76 USDT** · 保守胜率 66.7%", markdown_text)
         self.assertNotIn("带单地址", text)
         self.assertNotIn("UTC+8", text)
         self.assertNotIn("<a ", html_text)
@@ -1486,7 +1492,7 @@ class MainTests(unittest.TestCase):
         )
         self.assertIn("仓位: 161.6 USDT/千U余额", open_text)
         self.assertIn("仓位: 161.6 USDT/千U余额", open_html)
-        self.assertIn("- 📌 仓位: 161.6 USDT/千U余额", open_markdown)
+        self.assertIn("- 📌 仓位：**161.6 USDT/千U余额**", open_markdown)
         self.assertNotIn("仓位:", text)
         no_data_text, _, no_data_markdown = format_operation_notification(
             {"name": "Leader", "url": SOURCE_URL},
@@ -1498,6 +1504,8 @@ class MainTests(unittest.TestCase):
         self.assertNotIn("带单余额", no_data_text)
         self.assertNotIn("资产管理规模", no_data_text)
         self.assertNotIn("资产规模", no_data_markdown)
+        self.assertIn("- ⚙️ 参考杠杆：暂无", no_data_markdown)
+        self.assertIn("- 💵 本次实现盈亏：暂无", no_data_markdown)
 
         with patch("app.main.DASHBOARD_BASE_URL", ""):
             plain_text, plain_html, _ = format_operation_notification(
