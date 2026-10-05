@@ -39,6 +39,7 @@ from app.main import (
     fetch_binance_symbol_precisions,
     fetch_binance_trade_history,
     fetch_leader_drawdowns,
+    fetch_leader_finance,
     fetch_leader_name,
     keyed_records,
     monitor_poll_offset_seconds,
@@ -744,6 +745,9 @@ class MainTests(unittest.TestCase):
         async def fake_drawdowns(_, __: str):
             return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
 
+        async def fake_finance(_, __: str):
+            return ("18256.38", "25212.35")
+
         async def fake_symbol_precisions(_):
             return {}
 
@@ -765,6 +769,7 @@ class MainTests(unittest.TestCase):
                 position_history_fetcher=empty_position_history,
                 leader_name_fetcher=fake_leader_name,
                 drawdown_fetcher=fake_drawdowns,
+                leader_finance_fetcher=fake_finance,
                 symbol_precision_fetcher=fake_symbol_precisions,
             )
             with TestClient(app) as client, patch(
@@ -793,6 +798,9 @@ class MainTests(unittest.TestCase):
         async def fake_drawdowns(_, __: str):
             return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
 
+        async def fake_finance(_, __: str):
+            return ("18256.38", "25212.35")
+
         async def fake_symbol_precisions(_):
             return {}
 
@@ -806,6 +814,7 @@ class MainTests(unittest.TestCase):
                 position_history_fetcher=empty_position_history,
                 leader_name_fetcher=fake_leader_name,
                 drawdown_fetcher=fake_drawdowns,
+                leader_finance_fetcher=fake_finance,
                 symbol_precision_fetcher=fake_symbol_precisions,
             )
             with TestClient(app) as client:
@@ -837,6 +846,9 @@ class MainTests(unittest.TestCase):
         async def fake_drawdowns(_, __: str):
             return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
 
+        async def fake_finance(_, __: str):
+            return ("18256.38", "25212.35")
+
         async def fake_symbol_precisions(_):
             return {}
 
@@ -850,6 +862,7 @@ class MainTests(unittest.TestCase):
                 position_history_fetcher=failed_position_history,
                 leader_name_fetcher=fake_leader_name,
                 drawdown_fetcher=fake_drawdowns,
+                leader_finance_fetcher=fake_finance,
                 symbol_precision_fetcher=fake_symbol_precisions,
             )
             with TestClient(app) as client:
@@ -889,6 +902,9 @@ class MainTests(unittest.TestCase):
         async def fake_drawdowns(_, __: str):
             return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
 
+        async def fake_finance(_, __: str):
+            return ("18256.38", "25212.35")
+
         async def fake_symbol_precisions(_):
             return {}
 
@@ -902,6 +918,7 @@ class MainTests(unittest.TestCase):
                 position_history_fetcher=fake_position_history,
                 leader_name_fetcher=fake_leader_name,
                 drawdown_fetcher=fake_drawdowns,
+                leader_finance_fetcher=fake_finance,
                 symbol_precision_fetcher=fake_symbol_precisions,
             )
             with TestClient(app) as client:
@@ -936,6 +953,9 @@ class MainTests(unittest.TestCase):
         async def fake_drawdowns(_, __: str):
             return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
 
+        async def fake_finance(_, __: str):
+            return ("18256.38", "25212.35")
+
         async def fake_symbol_precisions(_):
             return {}
 
@@ -968,6 +988,7 @@ class MainTests(unittest.TestCase):
                 position_history_fetcher=slow_position_history,
                 leader_name_fetcher=fake_leader_name,
                 drawdown_fetcher=fake_drawdowns,
+                leader_finance_fetcher=fake_finance,
                 symbol_precision_fetcher=fake_symbol_precisions,
             )
             with (
@@ -1017,6 +1038,9 @@ class MainTests(unittest.TestCase):
         async def fake_drawdowns(_, __: str):
             return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
 
+        async def fake_finance(_, __: str):
+            return ("18256.38", "25212.35")
+
         async def fake_symbol_precisions(_):
             return {}
 
@@ -1047,6 +1071,7 @@ class MainTests(unittest.TestCase):
                 position_history_fetcher=empty_position_history,
                 leader_name_fetcher=fake_leader_name,
                 drawdown_fetcher=fake_drawdowns,
+                leader_finance_fetcher=fake_finance,
                 symbol_precision_fetcher=fake_symbol_precisions,
             )
             with (
@@ -1090,6 +1115,9 @@ class MainTests(unittest.TestCase):
         async def fake_drawdowns(_, __: str):
             return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
 
+        async def fake_finance(_, __: str):
+            return ("18256.38", "25212.35")
+
         async def fake_symbol_precisions(_):
             return {}
 
@@ -1107,6 +1135,7 @@ class MainTests(unittest.TestCase):
                 trade_alerts_enabled=True,
                 position_history_fetcher=empty_position_history,
                 drawdown_fetcher=fake_drawdowns,
+                leader_finance_fetcher=fake_finance,
                 symbol_precision_fetcher=fake_symbol_precisions,
             )
             with TestClient(app) as client, patch(
@@ -1221,7 +1250,15 @@ class MainTests(unittest.TestCase):
             }
         }
         text, html_text = format_operation_notification(
-            {"id": 7, "name": "Leader", "url": SOURCE_URL}, operation, performance
+            {
+                "id": 7,
+                "name": "Leader",
+                "url": SOURCE_URL,
+                "margin_balance": "18256.38058624",
+                "aum_amount": "25212.35392926",
+            },
+            operation,
+            performance,
         )
 
         self.assertIn("参考杠杆: 12x", text)
@@ -1229,6 +1266,10 @@ class MainTests(unittest.TestCase):
         self.assertIn("操作: ↘ 平多", text)
         self.assertIn("合约: XAUUSDT (https://www.binance.com/zh-CN/futures/XAUUSDT)", text)
         self.assertIn("本次实现盈亏: +3.5 USDT", text)
+        self.assertIn("带单余额: 18,256.38 USDT", text)
+        self.assertIn("资产管理规模: 25,212.35 USDT", text)
+        self.assertIn("带单余额: 18,256.38 USDT", html_text)
+        self.assertIn("资产管理规模: 25,212.35 USDT", html_text)
         self.assertIn("7D 胜率: 100.0% | 最大回撤: 0.01%", text)
         self.assertIn("30D 胜率: 75.0% | 最大回撤: 2.5%", text)
         self.assertIn("90D 胜率: 60.0% | 最大回撤: 暂无", text)
@@ -1245,6 +1286,8 @@ class MainTests(unittest.TestCase):
         )
         self.assertIn("参考杠杆: 暂无", no_data_text)
         self.assertIn("本次实现盈亏: 暂无", no_data_text)
+        self.assertNotIn("带单余额", no_data_text)
+        self.assertNotIn("资产管理规模", no_data_text)
 
         with patch("app.main.DASHBOARD_BASE_URL", ""):
             plain_text, plain_html = format_operation_notification(
@@ -1516,6 +1559,46 @@ class MainTests(unittest.TestCase):
                 return await fetch_leader_name(client, SOURCE_URL, "5075281354358777856")
 
         self.assertEqual(asyncio.run(request_name()), "Leader")
+
+
+    def test_fetch_leader_finance_parses_detail_fields(self) -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            self.assertTrue(request.url.path.endswith("lead-portfolio/detail"))
+            self.assertEqual(request.url.params["portfolioId"], "5075281354358777856")
+            return httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "data": {
+                        "nickname": "Leader",
+                        "marginBalance": "18256.38058624",
+                        "aumAmount": "25212.35392926",
+                    },
+                },
+            )
+
+        async def request_finance() -> tuple[str, str]:
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+                return await fetch_leader_finance(client, "5075281354358777856")
+
+        self.assertEqual(
+            asyncio.run(request_finance()), ("18256.38058624", "25212.35392926")
+        )
+
+    def test_update_monitor_finance_persists_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "monitor.db")
+            store.initialize(None)
+            monitor = store.create_monitor("Leader", "", SOURCE_URL, "5075281354358777856")
+            self.assertEqual(monitor["margin_balance"], "")
+            self.assertEqual(monitor["aum_amount"], "")
+
+            store.update_monitor_finance(monitor["id"], "18256.38058624", "25212.35392926")
+            updated = store.get_monitor(monitor["id"])
+            self.assertIsNotNone(updated)
+            self.assertEqual(updated["margin_balance"], "18256.38058624")
+            self.assertEqual(updated["aum_amount"], "25212.35392926")
+            store.close()
 
     def test_generated_admin_login_and_password_change(self) -> None:
         with tempfile.TemporaryDirectory() as directory, patch.dict(
@@ -1855,6 +1938,9 @@ class MainTests(unittest.TestCase):
         async def fake_drawdowns(_, __: str):
             return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
 
+        async def fake_finance(_, __: str):
+            return ("18256.38", "25212.35")
+
         async def fake_symbol_precisions(_):
             return {}
 
@@ -1868,6 +1954,7 @@ class MainTests(unittest.TestCase):
                 position_history_fetcher=empty_position_history,
                 leader_name_fetcher=fake_leader_name,
                 drawdown_fetcher=fake_drawdowns,
+                leader_finance_fetcher=fake_finance,
                 symbol_precision_fetcher=fake_symbol_precisions,
             )
             with TestClient(app) as client:
@@ -1962,6 +2049,9 @@ class MainTests(unittest.TestCase):
         async def fake_drawdowns(_, __: str):
             return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
 
+        async def fake_finance(_, __: str):
+            return ("18256.38", "25212.35")
+
         async def fake_symbol_precisions(_):
             return {}
 
@@ -1975,6 +2065,7 @@ class MainTests(unittest.TestCase):
                 position_history_fetcher=empty_position_history,
                 leader_name_fetcher=fake_leader_name,
                 drawdown_fetcher=fake_drawdowns,
+                leader_finance_fetcher=fake_finance,
                 symbol_precision_fetcher=fake_symbol_precisions,
             )
             with TestClient(app) as client:
@@ -2019,6 +2110,9 @@ class MainTests(unittest.TestCase):
         async def fake_drawdowns(_, __: str):
             return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
 
+        async def fake_finance(_, __: str):
+            return ("18256.38", "25212.35")
+
         async def fake_symbol_precisions(_):
             return {}
 
@@ -2035,6 +2129,7 @@ class MainTests(unittest.TestCase):
                 position_history_fetcher=empty_position_history,
                 leader_name_fetcher=fake_leader_name,
                 drawdown_fetcher=fake_drawdowns,
+                leader_finance_fetcher=fake_finance,
                 symbol_precision_fetcher=fake_symbol_precisions,
             )
             with patch("app.main.send_telegram_html", new=fake_send_telegram), TestClient(app) as client:
@@ -2087,6 +2182,10 @@ class MainTests(unittest.TestCase):
             self.assertEqual(portfolio_id, "5075281354358777856")
             return {"7d": 4.55, "30d": 8.33, "90d": 12.34}
 
+        async def fake_finance(_, portfolio_id: str):
+            self.assertEqual(portfolio_id, "5075281354358777856")
+            return ("18256.38058624", "25212.35392926")
+
         async def fake_symbol_precisions(_):
             return {"XAUUSDT": (2, 3)}
 
@@ -2100,6 +2199,7 @@ class MainTests(unittest.TestCase):
                 position_history_fetcher=fake_position_history,
                 leader_name_fetcher=fake_leader_name,
                 drawdown_fetcher=fake_drawdowns,
+                leader_finance_fetcher=fake_finance,
                 symbol_precision_fetcher=fake_symbol_precisions,
             )
             with TestClient(app) as client:
@@ -2126,6 +2226,13 @@ class MainTests(unittest.TestCase):
                 self.assertEqual(
                     client.get("/api/operations").json()["operations"][0]["reference_leverage"], "12"
                 )
+                refreshed_monitor = next(
+                    item
+                    for item in client.get("/api/dashboard").json()["monitors"]
+                    if item["id"] == monitor_id
+                )
+                self.assertEqual(refreshed_monitor["margin_balance"], "18256.38058624")
+                self.assertEqual(refreshed_monitor["aum_amount"], "25212.35392926")
 
                 silent = client.patch(f"/api/monitors/{monitor_id}", json={"mode": "silent"})
                 self.assertEqual(silent.status_code, 200)

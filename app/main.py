@@ -20,7 +20,7 @@ from collections import Counter, defaultdict
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Literal
@@ -90,6 +90,7 @@ PositionHistoryFetcher = Callable[
 ]
 LeaderNameFetcher = Callable[[httpx.AsyncClient, str, str], Awaitable[str]]
 DrawdownFetcher = Callable[[httpx.AsyncClient, str], Awaitable[dict[str, float | None]]]
+LeaderFinanceFetcher = Callable[[httpx.AsyncClient, str], Awaitable[tuple[str, str]]]
 SymbolPrecisionFetcher = Callable[[httpx.AsyncClient], Awaitable[dict[str, tuple[int, int]]]]
 
 
@@ -534,7 +535,9 @@ class Store:
                     last_leverage_error TEXT,
                     trade_alerts_initialized INTEGER NOT NULL DEFAULT 0,
                     trade_alerts_started_at INTEGER,
-                    last_trade_alert_error TEXT
+                    last_trade_alert_error TEXT,
+                    margin_balance TEXT NOT NULL DEFAULT '',
+                    aum_amount TEXT NOT NULL DEFAULT ''
                 );
 
                 CREATE TABLE IF NOT EXISTS operations (
@@ -686,6 +689,8 @@ class Store:
             )
             self._ensure_column("monitors", "trade_alerts_started_at", "INTEGER")
             self._ensure_column("monitors", "last_trade_alert_error", "TEXT")
+            self._ensure_column("monitors", "margin_balance", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column("monitors", "aum_amount", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column("operations", "realized_profit", "TEXT NOT NULL DEFAULT '0'")
             self._ensure_column("operations", "profit_asset", "TEXT NOT NULL DEFAULT 'USDT'")
             self._ensure_column("operations", "reference_leverage", "TEXT")
@@ -1134,6 +1139,14 @@ class Store:
                     utc_now(),
                     monitor_id,
                 ),
+            )
+            self.connection.commit()
+
+    def update_monitor_finance(self, monitor_id: int, margin_balance: str, aum_amount: str) -> None:
+        with self.lock:
+            self.connection.execute(
+                "UPDATE monitors SET margin_balance = ?, aum_amount = ? WHERE id = ?",
+                (margin_balance, aum_amount, monitor_id),
             )
             self.connection.commit()
 
@@ -2434,6 +2447,25 @@ async def fetch_leader_drawdowns(
     return {f"{days}d": value for days, value in zip((7, 30, 90), values, strict=True)}
 
 
+async def fetch_leader_finance(
+    client: httpx.AsyncClient, portfolio_id: str
+) -> tuple[str, str]:
+    response = await client.get(
+        BINANCE_LEADER_DETAIL_URL,
+        params={"portfolioId": portfolio_id},
+        headers=binance_headers(portfolio_id),
+    )
+    response.raise_for_status()
+    payload = response.json()
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        raise PollError("带单详情数据结构异常")
+    return (
+        str(data.get("marginBalance") or ""),
+        str(data.get("aumAmount") or ""),
+    )
+
+
 async def fetch_initial_history(app: FastAPI, portfolio_id: str) -> list[dict[str, Any]]:
     if app.state.fetcher is not fetch_binance_order_history:
         return await app.state.fetcher(app.state.http, portfolio_id)
@@ -2575,6 +2607,14 @@ def notification_realized_profit(operation: dict[str, Any]) -> str:
     return f"{amount} {operation.get('profit_asset') or 'USDT'}"
 
 
+def format_finance_amount(value: Any) -> str | None:
+    amount = decimal_value(value)
+    if not amount or not amount.is_finite():
+        return None
+    quantized = amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"{quantized:,} USDT"
+
+
 def notification_period_lines(performance: dict[str, Any] | None) -> list[str]:
     periods = performance.get("periods", {}) if performance else {}
     lines = []
@@ -2617,6 +2657,12 @@ def format_operation_notification(
     period_lines = notification_period_lines(performance)
     heading = "Binance Copy Watch · 成交预警" if trade_alert else "Binance Copy Watch"
     source_note = "说明: 此为分笔成交预警，官方订单记录将在 Binance 返回后同步。"
+    margin_balance_text = format_finance_amount(monitor.get("margin_balance"))
+    aum_amount_text = format_finance_amount(monitor.get("aum_amount"))
+    finance_lines = [
+        *( [f"带单余额: {margin_balance_text}"] if margin_balance_text else [] ),
+        *( [f"资产管理规模: {aum_amount_text}"] if aum_amount_text else [] ),
+    ]
     lines = [
         heading,
         *([source_note] if trade_alert else []),
@@ -2629,6 +2675,7 @@ def format_operation_notification(
         f"总值: {operation['quantity']} USDT",
         f"参考杠杆: {f'{leverage}x' if leverage else '暂无'}",
         f"本次实现盈亏: {notification_realized_profit(operation)}",
+        *finance_lines,
         "带单人表现:",
         *period_lines,
         f"带单地址: 打开 Binance 带单页 ({monitor['url']})",
@@ -2649,6 +2696,7 @@ def format_operation_notification(
         f"总值: {html.escape(str(operation['quantity']))} USDT",
         f"参考杠杆: {html.escape(f'{leverage}x' if leverage else '暂无')}",
         f"本次实现盈亏: {html.escape(notification_realized_profit(operation))}",
+        *(html.escape(line) for line in finance_lines),
         "<b>带单人表现:</b>",
         *(html.escape(line) for line in period_lines),
         f'带单地址: <a href="{html.escape(str(monitor["url"]))}">打开 Binance 带单页</a>',
@@ -3136,6 +3184,19 @@ async def refresh_monitor_drawdowns(app: FastAPI, monitor: dict[str, Any]) -> No
     app.state.store.update_monitor_drawdowns(monitor["id"], drawdowns)
 
 
+async def refresh_monitor_finance(app: FastAPI, monitor: dict[str, Any]) -> None:
+    try:
+        margin_balance, aum_amount = await asyncio.wait_for(
+            app.state.leader_finance_fetcher(app.state.http, monitor["portfolio_id"]),
+            timeout=METADATA_TIMEOUT_SECONDS,
+        )
+    except Exception as error:
+        message = f"Binance 带单余额查询失败: {safe_error(error)}"
+        app.state.store.log_event(monitor["id"], "error", "Binance 带单余额", message)
+        return
+    app.state.store.update_monitor_finance(monitor["id"], margin_balance, aum_amount)
+
+
 async def fetch_monitor_reference_positions(
     app: FastAPI,
     monitor: dict[str, Any],
@@ -3191,7 +3252,9 @@ async def refresh_binance_symbol_precisions(app: FastAPI) -> None:
 
 async def refresh_monitor_metadata(app: FastAPI, monitor: dict[str, Any]) -> None:
     await asyncio.gather(
-        refresh_monitor_drawdowns(app, monitor), refresh_binance_symbol_precisions(app)
+        refresh_monitor_drawdowns(app, monitor),
+        refresh_monitor_finance(app, monitor),
+        refresh_binance_symbol_precisions(app),
     )
 
 
@@ -3465,6 +3528,7 @@ def create_app(
     position_history_fetcher: PositionHistoryFetcher = fetch_binance_position_history,
     leader_name_fetcher: LeaderNameFetcher = fetch_leader_name,
     drawdown_fetcher: DrawdownFetcher = fetch_leader_drawdowns,
+    leader_finance_fetcher: LeaderFinanceFetcher = fetch_leader_finance,
     symbol_precision_fetcher: SymbolPrecisionFetcher = fetch_binance_symbol_precisions,
 ) -> FastAPI:
     data_dir = Path(os.getenv("DATA_DIR", "data"))
@@ -3496,6 +3560,7 @@ def create_app(
         app.state.position_history_fetcher = position_history_fetcher
         app.state.leader_name_fetcher = leader_name_fetcher
         app.state.drawdown_fetcher = drawdown_fetcher
+        app.state.leader_finance_fetcher = leader_finance_fetcher
         app.state.symbol_precision_fetcher = symbol_precision_fetcher
         app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(20.0), follow_redirects=True)
         app.state.last_poll_at = None
