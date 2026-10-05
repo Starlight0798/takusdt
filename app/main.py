@@ -1744,24 +1744,44 @@ class Store:
         self, monitor_id: int | None, attempt_status: str, message: str, channel_name: str | None = None
     ) -> None:
         with self.lock:
-            self.connection.execute(
-                """
-                INSERT INTO notification_attempts (monitor_id, channel_name, status, message, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (monitor_id, channel_name[:100] if channel_name else None, attempt_status, message[:300], utc_now()),
-            )
+            try:
+                self.connection.execute(
+                    """
+                    INSERT INTO notification_attempts (monitor_id, channel_name, status, message, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (monitor_id, channel_name[:100] if channel_name else None, attempt_status, message[:300], utc_now()),
+                )
+            except sqlite3.IntegrityError:
+                # 外键失效说明监控刚被删除：降级为系统级记录，避免记账中断业务流程
+                self.connection.execute(
+                    """
+                    INSERT INTO notification_attempts (monitor_id, channel_name, status, message, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (None, channel_name[:100] if channel_name else None, attempt_status, message[:300], utc_now()),
+                )
             self.connection.commit()
 
     def log_event(self, monitor_id: int | None, level: str, event: str, message: str) -> None:
         with self.lock:
-            self.connection.execute(
-                """
-                INSERT INTO system_logs (monitor_id, level, event, message, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (monitor_id, level[:20], event[:80], message[:500], utc_now()),
-            )
+            try:
+                self.connection.execute(
+                    """
+                    INSERT INTO system_logs (monitor_id, level, event, message, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (monitor_id, level[:20], event[:80], message[:500], utc_now()),
+                )
+            except sqlite3.IntegrityError:
+                # 外键失效说明监控刚被删除：降级为系统级日志，避免日志写入中断业务流程
+                self.connection.execute(
+                    """
+                    INSERT INTO system_logs (monitor_id, level, event, message, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (None, level[:20], event[:80], message[:500], utc_now()),
+                )
             self.connection.commit()
 
     def system_logs(self, limit: int = 200) -> list[dict[str, Any]]:
@@ -3336,6 +3356,9 @@ def queue_operation_reference_leverages(
 async def process_monitor_trade_alerts(
     app: FastAPI, monitor: dict[str, Any], trades: list[dict[str, Any]]
 ) -> dict[str, Any]:
+    if app.state.store.get_monitor(monitor["id"]) is None:
+        # 成交预警任务飞行期间监控被删除：跳过写入，避免外键错误
+        return {"status": "deleted", "count": 0}
     if not monitor["trade_alerts_initialized"]:
         baseline_count = app.state.store.save_trade_alert_baseline(monitor["id"], trades)
         return {"status": "baseline", "count": baseline_count}
@@ -3412,6 +3435,9 @@ async def poll_monitor(app: FastAPI, monitor: dict[str, Any]) -> dict[str, Any]:
             await send_error_alert(app, monitor, "Binance 查询", message)
         return {"monitor_id": monitor["id"], "status": "error", "error": message}
 
+    if app.state.store.get_monitor(monitor["id"]) is None:
+        # 等待订单响应期间监控被删除：跳过本次写入，避免外键错误触发轮询告警
+        return {"monitor_id": monitor["id"], "status": "deleted"}
     # Binance order-history already returns the same operation grouping as its UI.
     operations = keyed_records(records)
     if not monitor["initialized"]:

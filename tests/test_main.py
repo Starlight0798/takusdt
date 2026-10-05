@@ -46,6 +46,8 @@ from app.main import (
     notification_operation_details,
     operation_action,
     poll_all,
+    poll_monitor,
+    process_monitor_trade_alerts,
     reference_leverage_for_operation,
     refresh_monitor_drawdowns,
     safe_error,
@@ -807,6 +809,74 @@ class MainTests(unittest.TestCase):
         self.assertIn("第 2/3 次尝试失败", logs[1]["message"])
         self.assertIn("Binance 回撤查询失败（已重试 3 次）", logs[0]["message"])
         self.assertIn("Binance 回撤查询失败（已重试 3 次）", state["last_drawdown_error"])
+
+    def test_poll_monitor_skips_writes_when_monitor_deleted_midflight(self) -> None:
+        async def fetch_records(
+            _: httpx.AsyncClient, __: str
+        ) -> list[dict[str, object]]:
+            return []
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"ADMIN_PASSWORD": "test-admin-password"}
+        ):
+            app = create_app(
+                Path(directory) / "monitor.db",
+                start_poller=False,
+                fetcher=fetch_records,
+            )
+            with TestClient(app):
+                store = app.state.store
+                monitor = store.create_monitor(
+                    "Leader", "Test note", SOURCE_URL, "5075281354358777856"
+                )
+                store.delete_monitor(monitor["id"])
+                result = asyncio.run(poll_monitor(app, monitor))
+                errors = [
+                    entry
+                    for entry in store.system_logs()
+                    if entry["level"] == "error"
+                ]
+                store.close()
+
+        self.assertEqual(result, {"monitor_id": monitor["id"], "status": "deleted"})
+        self.assertEqual(errors, [])
+
+    def test_trade_alerts_skip_deleted_monitor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"ADMIN_PASSWORD": "test-admin-password"}
+        ):
+            app = create_app(Path(directory) / "monitor.db", start_poller=False)
+            with TestClient(app):
+                store = app.state.store
+                monitor = store.create_monitor(
+                    "Leader", "Test note", SOURCE_URL, "5075281354358777856"
+                )
+                store.delete_monitor(monitor["id"])
+                result = asyncio.run(process_monitor_trade_alerts(app, monitor, []))
+                store.close()
+
+        self.assertEqual(result, {"status": "deleted", "count": 0})
+
+    def test_log_writes_fall_back_to_system_level_for_deleted_monitor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "monitor.db")
+            store.initialize("test-admin-password")
+            monitor = store.create_monitor(
+                "Leader", "Test note", SOURCE_URL, "5075281354358777856"
+            )
+            store.delete_monitor(monitor["id"])
+
+            store.log_event(monitor["id"], "error", "Binance 查询", "删除后写入")
+            store.log_notification(monitor["id"], "sent", "已发送：异常告警", "钉钉")
+
+            logs = store.system_logs()
+            attempts = store.notification_attempts()
+            store.close()
+
+        self.assertEqual(logs[0]["monitor_id"], None)
+        self.assertIn("删除后写入", logs[0]["message"])
+        self.assertEqual(attempts[0]["monitor_id"], None)
+        self.assertEqual(attempts[0]["status"], "sent")
 
     def test_monitor_poll_offsets_spread_sources_across_the_interval(self) -> None:
         self.assertEqual(
