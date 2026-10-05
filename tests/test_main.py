@@ -1727,6 +1727,51 @@ class MainTests(unittest.TestCase):
             {"7d": 4.55, "30d": 8.33, "90d": None, "roi_7d": 12.0, "roi_30d": 10.0, "roi_90d": None},
         )
 
+
+    def test_leader_drawdown_roi_uses_latest_point_by_time(self) -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.params["timeRange"] == "30D":
+                points = [
+                    {"dateTime": 30, "value": 40},
+                    {"dateTime": 10, "value": 20},
+                    {"dateTime": 20, "value": 10},
+                ]
+            else:
+                points = [{"dateTime": 5, "value": 6}]
+            return httpx.Response(200, json={"code": "000000", "data": points})
+
+        async def request_drawdowns() -> dict[str, float | None]:
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+                return await fetch_leader_drawdowns(client, "5075281354358777856")
+
+        result = asyncio.run(request_drawdowns())
+        # 乱序数组按时间排序后净值 120 -> 110 -> 140：官方收益率取时间末点 40，峰谷回撤 8.33%。
+        self.assertEqual(result["roi_30d"], 40.0)
+        self.assertEqual(result["30d"], 8.33)
+
+    def test_persisted_roi_round_trips_through_performance(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "monitor.db")
+            store.initialize("test-admin-password")
+            monitor = store.create_monitor(
+                "Leader", "", SOURCE_URL, "5075281354358777856"
+            )
+            store.update_monitor_drawdowns(
+                monitor["id"],
+                {
+                    "7d": 1.5,
+                    "30d": 2.5,
+                    "90d": None,
+                    "roi_7d": 12.34,
+                    "roi_30d": 56.78,
+                    "roi_90d": None,
+                },
+            )
+            periods = store.performance(monitor["id"])[0]["periods"]
+            self.assertEqual(periods["7d"]["roi"], 12.34)
+            self.assertEqual(periods["30d"]["roi"], 56.78)
+            self.assertIsNone(periods["90d"]["roi"])
+            store.close()
     def test_leader_name_uses_detail_endpoint_nickname(self) -> None:
         async def handler(request: httpx.Request) -> httpx.Response:
             self.assertTrue(request.url.path.endswith("lead-portfolio/detail"))

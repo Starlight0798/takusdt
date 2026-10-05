@@ -2676,13 +2676,15 @@ def notification_period_lines(performance: dict[str, Any] | None) -> list[str]:
         f"{f'{conservative_win_rate}%' if conservative_win_rate is not None else '暂无'}"
     )
     return lines
+
+
 def open_position_line(
     operation: dict[str, Any], action_key: str, margin_balance: Decimal | None
 ) -> str | None:
     """开仓操作折算每 1000 USDT 带单余额对应的持仓，便于直接跟单。"""
     if action_key not in ("open_long", "open_short"):
         return None
-    if margin_balance is None:
+    if margin_balance is None or margin_balance <= 0:
         return None
     total = decimal_value(operation.get("quantity"))
     if not total or not total.is_finite() or total <= 0:
