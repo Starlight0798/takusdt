@@ -10,6 +10,9 @@ services:
       DASHBOARD_BASE_URL: ${DASHBOARD_BASE_URL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       TRADE_ALERTS_ENABLED: ${TRADE_ALERTS_ENABLED:-0}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-127.0.0.1,localhost}
     expose:
       - "8000"
     volumes:
