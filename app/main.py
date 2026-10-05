@@ -66,6 +66,8 @@ MAX_POSITION_HISTORY_PAGES = 60
 ORDER_HISTORY_TIMEOUT_SECONDS = 8.5
 REFERENCE_LEVERAGE_TIMEOUT_SECONDS = 5.0
 METADATA_TIMEOUT_SECONDS = 5.0
+METADATA_FETCH_ATTEMPTS = 3
+METADATA_RETRY_DELAY_SECONDS = 2.0
 OPERATION_HISTORY_FORMAT_VERSION = "2"
 TRADE_ALERT_HISTORY_FORMAT_VERSION = "2"
 DEFAULT_SESSION_TTL_HOURS = 7 * 24
@@ -3168,14 +3170,51 @@ async def deliver_pending_trade_alerts(app: FastAPI, monitor: dict[str, Any]) ->
     return {"status": "sent", "count": delivered_count}
 
 
+async def fetch_metadata_with_retry(
+    app: FastAPI,
+    monitor: dict[str, Any],
+    event_label: str,
+    fetch: Callable[[], Awaitable[Any]],
+) -> Any:
+    """带单元数据请求统一重试，并把每次尝试写入系统运行日志。"""
+    for attempt in range(1, METADATA_FETCH_ATTEMPTS + 1):
+        try:
+            result = await asyncio.wait_for(fetch(), timeout=METADATA_TIMEOUT_SECONDS)
+        except Exception as error:
+            if attempt >= METADATA_FETCH_ATTEMPTS:
+                raise
+            app.state.store.log_event(
+                monitor["id"],
+                "warning",
+                event_label,
+                (
+                    f"第 {attempt}/{METADATA_FETCH_ATTEMPTS} 次尝试失败: {safe_error(error)}，"
+                    f"{METADATA_RETRY_DELAY_SECONDS:.0f} 秒后重试"
+                ),
+            )
+            await asyncio.sleep(METADATA_RETRY_DELAY_SECONDS)
+            continue
+        if attempt > 1:
+            app.state.store.log_event(
+                monitor["id"],
+                "info",
+                event_label,
+                f"重试成功：第 {attempt}/{METADATA_FETCH_ATTEMPTS} 次尝试成功",
+            )
+        return result
+    raise AssertionError("metadata retry loop must return or raise")
+
+
 async def refresh_monitor_drawdowns(app: FastAPI, monitor: dict[str, Any]) -> None:
     try:
-        drawdowns = await asyncio.wait_for(
-            app.state.drawdown_fetcher(app.state.http, monitor["portfolio_id"]),
-            timeout=METADATA_TIMEOUT_SECONDS,
+        drawdowns = await fetch_metadata_with_retry(
+            app,
+            monitor,
+            "Binance 回撤查询",
+            lambda: app.state.drawdown_fetcher(app.state.http, monitor["portfolio_id"]),
         )
     except Exception as error:
-        message = f"Binance 回撤查询失败: {safe_error(error)}"
+        message = f"Binance 回撤查询失败（已重试 {METADATA_FETCH_ATTEMPTS} 次）: {safe_error(error)}"
         is_new_error = app.state.store.set_monitor_drawdown_error(monitor["id"], message)
         app.state.store.log_event(monitor["id"], "error", "Binance 回撤查询", message)
         if is_new_error:
@@ -3186,12 +3225,14 @@ async def refresh_monitor_drawdowns(app: FastAPI, monitor: dict[str, Any]) -> No
 
 async def refresh_monitor_finance(app: FastAPI, monitor: dict[str, Any]) -> None:
     try:
-        margin_balance, aum_amount = await asyncio.wait_for(
-            app.state.leader_finance_fetcher(app.state.http, monitor["portfolio_id"]),
-            timeout=METADATA_TIMEOUT_SECONDS,
+        margin_balance, aum_amount = await fetch_metadata_with_retry(
+            app,
+            monitor,
+            "Binance 带单余额",
+            lambda: app.state.leader_finance_fetcher(app.state.http, monitor["portfolio_id"]),
         )
     except Exception as error:
-        message = f"Binance 带单余额查询失败: {safe_error(error)}"
+        message = f"Binance 带单余额查询失败（已重试 {METADATA_FETCH_ATTEMPTS} 次）: {safe_error(error)}"
         app.state.store.log_event(monitor["id"], "error", "Binance 带单余额", message)
         return
     app.state.store.update_monitor_finance(monitor["id"], margin_balance, aum_amount)

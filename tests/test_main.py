@@ -47,6 +47,7 @@ from app.main import (
     operation_action,
     poll_all,
     reference_leverage_for_operation,
+    refresh_monitor_drawdowns,
     safe_error,
     send_dingtalk_message,
     send_extra_notification_channels,
@@ -719,6 +720,93 @@ class MainTests(unittest.TestCase):
         with patch("app.main.ORDER_HISTORY_TIMEOUT_SECONDS", 0.01):
             self.assertEqual(asyncio.run(request_history()), [])
         self.assertEqual(request_count, 2)
+
+    def test_metadata_retry_logs_each_attempt_and_recovers(self) -> None:
+        attempts: list[str] = []
+
+        async def flaky_drawdowns(
+            _: httpx.AsyncClient, portfolio_id: str
+        ) -> dict[str, float | None]:
+            attempts.append(portfolio_id)
+            if len(attempts) == 1:
+                raise httpx.ConnectError("网络请求失败")
+            return {"7d": 0.031, "30d": 0.244, "90d": None}
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"ADMIN_PASSWORD": "test-admin-password"}
+        ):
+            app = create_app(
+                Path(directory) / "monitor.db",
+                start_poller=False,
+                drawdown_fetcher=flaky_drawdowns,
+            )
+            with TestClient(app):
+                store = app.state.store
+                monitor = store.create_monitor(
+                    "Leader", "Test note", SOURCE_URL, "5075281354358777856"
+                )
+                with patch("app.main.METADATA_RETRY_DELAY_SECONDS", 0.0):
+                    asyncio.run(refresh_monitor_drawdowns(app, monitor))
+
+                logs = [
+                    entry
+                    for entry in store.system_logs()
+                    if entry["event"] == "Binance 回撤查询"
+                ]
+                state = store.get_monitor(monitor["id"])
+                store.close()
+
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual([entry["level"] for entry in logs], ["info", "warning"])
+        self.assertIn("第 1/3 次尝试失败", logs[1]["message"])
+        self.assertIn("ConnectError", logs[1]["message"])
+        self.assertIn("网络请求失败", logs[1]["message"])
+        self.assertIn("0 秒后重试", logs[1]["message"])
+        self.assertIn("重试成功：第 2/3 次尝试成功", logs[0]["message"])
+        self.assertEqual(state["drawdown_7d"], 0.031)
+        self.assertEqual(state["last_drawdown_error"], None)
+
+    def test_metadata_retry_exhaustion_reports_error_with_attempt_count(self) -> None:
+        attempts: list[str] = []
+
+        async def broken_drawdowns(
+            _: httpx.AsyncClient, portfolio_id: str
+        ) -> dict[str, float | None]:
+            attempts.append(portfolio_id)
+            raise httpx.ConnectError("网络请求失败")
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"ADMIN_PASSWORD": "test-admin-password"}
+        ):
+            app = create_app(
+                Path(directory) / "monitor.db",
+                start_poller=False,
+                drawdown_fetcher=broken_drawdowns,
+            )
+            with TestClient(app):
+                store = app.state.store
+                monitor = store.create_monitor(
+                    "Leader", "Test note", SOURCE_URL, "5075281354358777856"
+                )
+                with patch("app.main.METADATA_RETRY_DELAY_SECONDS", 0.0):
+                    asyncio.run(refresh_monitor_drawdowns(app, monitor))
+
+                logs = [
+                    entry
+                    for entry in store.system_logs()
+                    if entry["event"] == "Binance 回撤查询"
+                ]
+                state = store.get_monitor(monitor["id"])
+                store.close()
+
+        self.assertEqual(len(attempts), 3)
+        self.assertEqual(
+            [entry["level"] for entry in logs], ["error", "warning", "warning"]
+        )
+        self.assertIn("第 1/3 次尝试失败", logs[2]["message"])
+        self.assertIn("第 2/3 次尝试失败", logs[1]["message"])
+        self.assertIn("Binance 回撤查询失败（已重试 3 次）", logs[0]["message"])
+        self.assertIn("Binance 回撤查询失败（已重试 3 次）", state["last_drawdown_error"])
 
     def test_monitor_poll_offsets_spread_sources_across_the_interval(self) -> None:
         self.assertEqual(
