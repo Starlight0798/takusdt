@@ -24,7 +24,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import parse_qs, parse_qsl, quote, unquote, urlencode, urlparse
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -683,6 +683,9 @@ class Store:
             self._ensure_column("monitors", "drawdown_7d", "REAL")
             self._ensure_column("monitors", "drawdown_30d", "REAL")
             self._ensure_column("monitors", "drawdown_90d", "REAL")
+            self._ensure_column("monitors", "roi_7d", "REAL")
+            self._ensure_column("monitors", "roi_30d", "REAL")
+            self._ensure_column("monitors", "roi_90d", "REAL")
             self._ensure_column("monitors", "drawdown_updated_at", "TEXT")
             self._ensure_column("monitors", "last_drawdown_error", "TEXT")
             self._ensure_column("monitors", "last_leverage_error", "TEXT")
@@ -877,6 +880,7 @@ class Store:
                     last_checked_at = NULL, last_success_at = NULL,
                     last_error = NULL, drawdown_7d = NULL, drawdown_30d = NULL,
                     drawdown_90d = NULL, drawdown_updated_at = NULL, last_drawdown_error = NULL,
+                    roi_7d = NULL, roi_30d = NULL, roi_90d = NULL,
                     last_leverage_error = NULL, last_trade_alert_error = NULL
                 """
             )
@@ -1131,6 +1135,7 @@ class Store:
                 """
                 UPDATE monitors
                 SET drawdown_7d = ?, drawdown_30d = ?, drawdown_90d = ?,
+                    roi_7d = ?, roi_30d = ?, roi_90d = ?,
                     drawdown_updated_at = ?, last_drawdown_error = NULL
                 WHERE id = ?
                 """,
@@ -1138,6 +1143,9 @@ class Store:
                     drawdowns.get("7d"),
                     drawdowns.get("30d"),
                     drawdowns.get("90d"),
+                    drawdowns.get("roi_7d"),
+                    drawdowns.get("roi_30d"),
+                    drawdowns.get("roi_90d"),
                     utc_now(),
                     monitor_id,
                 ),
@@ -1693,6 +1701,7 @@ class Store:
             for days in (7, 30, 90):
                 period = period_performance(records, now_ms - days * 24 * 60 * 60 * 1000)
                 period["max_drawdown"] = monitor.get(f"drawdown_{days}d")
+                period["roi"] = monitor.get(f"roi_{days}d")
                 periods[f"{days}d"] = period
             result.append(
                 {
@@ -2411,7 +2420,7 @@ async def fetch_binance_symbol_precisions(
 
 async def fetch_leader_drawdown(
     client: httpx.AsyncClient, portfolio_id: str, time_range: str
-) -> float | None:
+) -> tuple[float | None, float | None]:
     response = await client.get(
         BINANCE_LEADER_CHART_URL,
         params={"portfolioId": portfolio_id, "dataType": "ROI", "timeRange": time_range},
@@ -2444,9 +2453,10 @@ async def fetch_leader_drawdown(
         if value.is_finite():
             points.append((timestamp, value))
     if not points:
-        return None
+        return None, None
 
     points.sort(key=lambda point: point[0])
+    period_roi = points[-1][1]
     peak = points[0][1]
     maximum_drawdown = Decimal("0")
     for _, value in points:
@@ -2457,7 +2467,10 @@ async def fetch_leader_drawdown(
                 (peak - value) / equity_at_peak * Decimal("100"),
             )
         peak = max(peak, value)
-    return float(maximum_drawdown.quantize(Decimal("0.01")))
+    return (
+        float(maximum_drawdown.quantize(Decimal("0.01"))),
+        float(period_roi.quantize(Decimal("0.01"))),
+    )
 
 
 async def fetch_leader_drawdowns(
@@ -2466,7 +2479,11 @@ async def fetch_leader_drawdowns(
     values = await asyncio.gather(
         *(fetch_leader_drawdown(client, portfolio_id, f"{days}D") for days in (7, 30, 90))
     )
-    return {f"{days}d": value for days, value in zip((7, 30, 90), values, strict=True)}
+    drawdowns: dict[str, float | None] = {}
+    for days, (drawdown, roi) in zip((7, 30, 90), values, strict=True):
+        drawdowns[f"{days}d"] = drawdown
+        drawdowns[f"roi_{days}d"] = roi
+    return drawdowns
 
 
 async def fetch_leader_finance(
@@ -2567,20 +2584,6 @@ def format_operation_time(value: int) -> str:
     )
 
 
-def binance_futures_url(symbol: str) -> str:
-    return f"https://www.binance.com/zh-CN/futures/{quote(symbol, safe='')}"
-
-
-def dashboard_operations_url(monitor: dict[str, Any], operation: dict[str, Any]) -> str | None:
-    if not DASHBOARD_BASE_URL:
-        return None
-    parameters = {
-        "monitor-name": str(monitor.get("name") or ""),
-        "symbol-link": str(operation.get("symbol") or ""),
-    }
-    if monitor.get("id") is not None:
-        parameters["monitor-id"] = str(monitor["id"])
-    return f"{DASHBOARD_BASE_URL}/#operations?{urlencode(parameters)}"
 
 
 def dashboard_monitor_url(monitor: dict[str, Any]) -> str | None:
@@ -2637,6 +2640,16 @@ def format_finance_amount(value: Any) -> str | None:
     return f"{quantized:,} USDT"
 
 
+def notification_period_roi(period: dict[str, Any]) -> str:
+    raw = period.get("roi")
+    if raw is None:
+        return "暂无"
+    roi = decimal_value(raw)
+    if roi is None or not roi.is_finite():
+        return "暂无"
+    return f"{'+' if roi > 0 else ''}{roi.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)}%"
+
+
 def notification_period_lines(performance: dict[str, Any] | None) -> list[str]:
     periods = performance.get("periods", {}) if performance else {}
     lines = []
@@ -2644,8 +2657,10 @@ def notification_period_lines(performance: dict[str, Any] | None) -> list[str]:
         period = periods.get(key, {})
         win_rate = period.get("win_rate")
         drawdown = period.get("max_drawdown")
+        roi = notification_period_roi(period)
         lines.append(
             f"{label} 胜率: {f'{win_rate}%' if win_rate is not None else '暂无'}"
+            f" | 收益率: {roi}"
             f" | 最大回撤: {f'{drawdown}%' if drawdown is not None else '暂无'}"
         )
     current = periods.get("30d", {})
@@ -2661,6 +2676,19 @@ def notification_period_lines(performance: dict[str, Any] | None) -> list[str]:
         f"{f'{conservative_win_rate}%' if conservative_win_rate is not None else '暂无'}"
     )
     return lines
+def open_position_line(
+    operation: dict[str, Any], action_key: str, margin_balance: Decimal | None
+) -> str | None:
+    """开仓操作折算每 1000 USDT 带单余额对应的持仓，便于直接跟单。"""
+    if action_key not in ("open_long", "open_short"):
+        return None
+    if margin_balance is None:
+        return None
+    total = decimal_value(operation.get("quantity"))
+    if not total or not total.is_finite() or total <= 0:
+        return None
+    per_thousand = total / margin_balance * Decimal("1000")
+    return f"仓位: {per_thousand.quantize(Decimal('0.1'), rounding=ROUND_HALF_UP)} USDT/千U余额"
 
 
 def format_operation_notification(
@@ -2673,10 +2701,15 @@ def format_operation_notification(
     action = notification_action(operation)
     amount = f"{operation['qty']} {operation['base_asset']}".strip()
     symbol = str(operation["symbol"])
-    symbol_url = binance_futures_url(symbol)
-    dashboard_url = dashboard_operations_url(monitor, operation)
     leverage = str(operation.get("reference_leverage") or "")
+    margin_balance = decimal_value(monitor.get("margin_balance"))
+    if not margin_balance.is_finite() or margin_balance <= 0:
+        margin_balance = None
     period_lines = notification_period_lines(performance)
+    action_key = operation_action(
+        operation["side"], operation["position_side"], operation.get("realized_profit")
+    )[1]
+    position_line = open_position_line(operation, action_key, margin_balance)
     heading = "Binance Copy Watch · 成交预警" if trade_alert else "Binance Copy Watch"
     source_note = "说明: 此为分笔成交预警，官方订单记录将在 Binance 返回后同步。"
     margin_balance_text = format_finance_amount(monitor.get("margin_balance"))
@@ -2688,40 +2721,36 @@ def format_operation_notification(
     lines = [
         heading,
         *([source_note] if trade_alert else []),
-        f"带单人: {monitor['name']} ({dashboard_url})" if dashboard_url else f"带单人: {monitor['name']}",
+        f"带单人: {monitor['name']}",
         f"时间: {format_operation_time(operation['occurred_at'])}",
         f"操作: {action}",
-        f"合约: {symbol} ({symbol_url})",
+        f"合约: {symbol}",
         f"数量: {amount}",
         f"均价: {operation['price']} USDT",
         f"总值: {operation['quantity']} USDT",
+        *([position_line] if position_line else []),
         f"参考杠杆: {f'{leverage}x' if leverage else '暂无'}",
         f"本次实现盈亏: {notification_realized_profit(operation)}",
         *finance_lines,
         "带单人表现:",
         *period_lines,
-        f"带单地址: 打开 Binance 带单页 ({monitor['url']})",
     ]
     html_lines = [
         f"<b>{heading}</b>",
         *([html.escape(source_note)] if trade_alert else []),
-        (
-            f'带单人: <a href="{html.escape(dashboard_url)}">{html.escape(str(monitor["name"]))}</a>'
-            if dashboard_url
-            else f'带单人: {html.escape(str(monitor["name"]))}'
-        ),
+        f"带单人: {html.escape(str(monitor['name']))}",
         f"时间: {html.escape(format_operation_time(operation['occurred_at']))}",
         f"操作: {html.escape(action)}",
-        f'合约: <a href="{html.escape(symbol_url)}">{html.escape(symbol)}</a>',
+        f"合约: {html.escape(symbol)}",
         f"数量: {html.escape(amount)}",
         f"均价: {html.escape(str(operation['price']))} USDT",
         f"总值: {html.escape(str(operation['quantity']))} USDT",
+        *([html.escape(position_line)] if position_line else []),
         f"参考杠杆: {html.escape(f'{leverage}x' if leverage else '暂无')}",
         f"本次实现盈亏: {html.escape(notification_realized_profit(operation))}",
         *(html.escape(line) for line in finance_lines),
         "<b>带单人表现:</b>",
         *(html.escape(line) for line in period_lines),
-        f'带单地址: <a href="{html.escape(str(monitor["url"]))}">打开 Binance 带单页</a>',
     ]
     return "\n".join(lines), "\n".join(html_lines)
 

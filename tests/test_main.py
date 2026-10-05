@@ -1401,6 +1401,7 @@ class MainTests(unittest.TestCase):
                 "30d": {
                     "win_rate": 75.0,
                     "max_drawdown": 2.5,
+                    "roi": 16.6,
                     "pnl": [{"amount": "3030.76", "asset": "USDT"}],
                     "conservative_win_rate": 66.7,
                 },
@@ -1420,23 +1421,42 @@ class MainTests(unittest.TestCase):
         )
 
         self.assertIn("参考杠杆: 12x", text)
-        self.assertIn("带单人: Leader (https://monitor.example.com/#operations?monitor-name=Leader&symbol-link=XAUUSDT&monitor-id=7)", text)
+        self.assertIn("带单人: Leader\n", text)
+        self.assertNotIn("monitor.example.com", text)
         self.assertIn("操作: ↘ 平多", text)
-        self.assertIn("合约: XAUUSDT (https://www.binance.com/zh-CN/futures/XAUUSDT)", text)
+        self.assertIn("合约: XAUUSDT\n", text)
+        self.assertNotIn("binance.com", text)
         self.assertIn("本次实现盈亏: +3.5 USDT", text)
         self.assertIn("带单余额: 18,256.38 USDT", text)
         self.assertIn("资产管理规模: 25,212.35 USDT", text)
         self.assertIn("带单余额: 18,256.38 USDT", html_text)
         self.assertIn("资产管理规模: 25,212.35 USDT", html_text)
-        self.assertIn("7D 胜率: 100.0% | 最大回撤: 0.01%", text)
-        self.assertIn("30D 胜率: 75.0% | 最大回撤: 2.5%", text)
-        self.assertIn("90D 胜率: 60.0% | 最大回撤: 暂无", text)
+        self.assertIn("7D 胜率: 100.0% | 收益率: 暂无 | 最大回撤: 0.01%", text)
+        self.assertIn("30D 胜率: 75.0% | 收益率: +16.60% | 最大回撤: 2.5%", text)
+        self.assertIn("90D 胜率: 60.0% | 收益率: 暂无 | 最大回撤: 暂无", text)
         self.assertIn("30D 已实现盈亏：3030.76 USDT · 保守胜率：66.7%", text)
-        self.assertIn(f"带单地址: 打开 Binance 带单页 ({SOURCE_URL})", text)
+        self.assertNotIn("带单地址", text)
         self.assertNotIn("UTC+8", text)
-        self.assertIn('<a href="https://www.binance.com/zh-CN/futures/XAUUSDT">XAUUSDT</a>', html_text)
-        self.assertIn('<a href="https://monitor.example.com/#operations?monitor-name=Leader&amp;symbol-link=XAUUSDT&amp;monitor-id=7">Leader</a>', html_text)
-
+        self.assertNotIn("<a ", html_text)
+        open_operation = {
+            **operation,
+            "side": "BUY",
+            "position_side": "LONG",
+            "realized_profit": "0",
+        }
+        open_text, open_html = format_operation_notification(
+            {
+                "id": 7,
+                "name": "Leader",
+                "url": SOURCE_URL,
+                "margin_balance": "18256.38058624",
+            },
+            open_operation,
+            performance,
+        )
+        self.assertIn("仓位: 161.6 USDT/千U余额", open_text)
+        self.assertIn("仓位: 161.6 USDT/千U余额", open_html)
+        self.assertNotIn("仓位:", text)
         no_data_text, _ = format_operation_notification(
             {"name": "Leader", "url": SOURCE_URL},
             {**operation, "reference_leverage": None, "realized_profit": "0"},
@@ -1703,7 +1723,8 @@ class MainTests(unittest.TestCase):
                 return await fetch_leader_drawdowns(client, "5075281354358777856")
 
         self.assertEqual(
-            asyncio.run(request_drawdowns()), {"7d": 4.55, "30d": 8.33, "90d": None}
+            asyncio.run(request_drawdowns()),
+            {"7d": 4.55, "30d": 8.33, "90d": None, "roi_7d": 12.0, "roi_30d": 10.0, "roi_90d": None},
         )
 
     def test_leader_name_uses_detail_endpoint_nickname(self) -> None:
