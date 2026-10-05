@@ -15,6 +15,7 @@ import smtplib
 import sqlite3
 import threading
 import time
+import traceback
 from collections import Counter, defaultdict
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
@@ -1083,6 +1084,14 @@ class Store:
                         """,
                         (monitor_id,),
                     )
+            self.connection.commit()
+        return self.get_monitor(monitor_id)
+
+    def update_monitor_name(self, monitor_id: int, name: str) -> dict[str, Any] | None:
+        with self.lock:
+            self.connection.execute(
+                "UPDATE monitors SET name = ? WHERE id = ?", (name, monitor_id)
+            )
             self.connection.commit()
         return self.get_monitor(monitor_id)
 
@@ -3260,7 +3269,9 @@ async def poll_monitor(app: FastAPI, monitor: dict[str, Any]) -> dict[str, Any]:
             if name != monitor["name"]:
                 monitor = app.state.store.update_monitor_name(monitor["id"], name) or monitor
         except Exception:
-            LOGGER.warning("带单员名称更新失败: %s", monitor["portfolio_id"])
+            LOGGER.warning(
+                "带单员名称更新失败: %s\n%s", monitor["portfolio_id"], traceback.format_exc()
+            )
     end_time = int(time.time() * 1000)
     reference_start_time = end_time - (
         INITIAL_HISTORY_DAYS * 24 * 60 * 60 * 1000
