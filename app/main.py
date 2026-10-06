@@ -18,7 +18,7 @@ import time
 import traceback
 from collections import Counter, defaultdict
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from email.message import EmailMessage
@@ -57,6 +57,11 @@ BINANCE_LEADER_CHART_URL = (
 POLL_INTERVAL_SECONDS = 20
 MIN_POLL_INTERVAL_SECONDS = 5
 MAX_POLL_INTERVAL_SECONDS = 60 * 60
+
+HTTP_CLIENT_TIMEOUT_SECONDS = 20.0
+POOL_REBUILD_FAILURE_RATIO = 0.25
+POOL_REBUILD_STREAK_ROUNDS = 2
+NETWORK_ERROR_MARKERS: tuple[str, ...] = ("Timeout", "ConnectError", "超时", "未完成")
 MAX_PENDING_PER_NOTIFICATION = 20
 INITIAL_HISTORY_DAYS = 7
 REGULAR_HISTORY_HOURS = 24
@@ -3649,6 +3654,45 @@ def monitor_poll_offset_seconds(
     return 0.0 if count < 2 else poll_interval_seconds * index / count
 
 
+def is_network_failure(result: dict[str, Any]) -> bool:
+    """轮询结果是否为网络型失败（超时/连接类），用于连接池自愈判断。"""
+    if result.get("status") != "error":
+        return False
+    message = str(result.get("error", ""))
+    return any(marker in message for marker in NETWORK_ERROR_MARKERS)
+
+
+def next_pool_rebuild_streak(streak: int, results: list[dict[str, Any]]) -> int:
+    """按本轮网络型失败占比更新连续失败轮数：达标 +1，否则归零。"""
+    if not results:
+        return 0
+    failures = sum(1 for item in results if is_network_failure(item))
+    if failures / len(results) >= POOL_REBUILD_FAILURE_RATIO:
+        return streak + 1
+    return 0
+
+
+async def rebuild_http_client(app: FastAPI) -> None:
+    """重建共享 HTTP 客户端，清空被死连接占满的连接池。"""
+    stale_client = app.state.http
+    app.state.http = httpx.AsyncClient(
+        timeout=httpx.Timeout(HTTP_CLIENT_TIMEOUT_SECONDS), follow_redirects=True
+    )
+    app.state.store.log_event(
+        None,
+        "warning",
+        "HTTP 自愈",
+        "连续多轮网络型失败，已重建 HTTP 连接池",
+    )
+
+    async def close_stale_client(client: httpx.AsyncClient) -> None:
+        await asyncio.sleep(60)
+        with suppress(Exception):
+            await client.aclose()
+
+    queue_background_task(app, close_stale_client(stale_client))
+
+
 async def poll_scheduled_monitor(
     app: FastAPI, monitor: dict[str, Any], delay: float
 ) -> dict[str, Any]:
@@ -3689,6 +3733,12 @@ async def poll_all(app: FastAPI) -> list[dict[str, Any]]:
             "轮询完成",
             f"已检查 {len(results)} 个启用监控，异常 {sum(item['status'] == 'error' for item in results)} 个",
         )
+        app.state.network_failure_streak = next_pool_rebuild_streak(
+            app.state.network_failure_streak, results
+        )
+        if app.state.network_failure_streak >= POOL_REBUILD_STREAK_ROUNDS:
+            app.state.network_failure_streak = 0
+            await rebuild_http_client(app)
         return results
 
 
@@ -3790,7 +3840,10 @@ def create_app(
         app.state.drawdown_fetcher = drawdown_fetcher
         app.state.leader_finance_fetcher = leader_finance_fetcher
         app.state.symbol_precision_fetcher = symbol_precision_fetcher
-        app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(20.0), follow_redirects=True)
+        app.state.http = httpx.AsyncClient(
+            timeout=httpx.Timeout(HTTP_CLIENT_TIMEOUT_SECONDS), follow_redirects=True
+        )
+        app.state.network_failure_streak = 0
         app.state.last_poll_at = None
         app.state.poll_lock = asyncio.Lock()
         app.state.poll_settings_changed = asyncio.Event()

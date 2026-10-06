@@ -42,7 +42,9 @@ from app.main import (
     fetch_leader_finance,
     fetch_leader_name,
     keyed_records,
+    is_network_failure,
     monitor_poll_offset_seconds,
+    next_pool_rebuild_streak,
     notification_operation_details,
     operation_action,
     poll_all,
@@ -2602,3 +2604,41 @@ class MainTests(unittest.TestCase):
                 self.assertEqual(unchanged.status_code, 200)
                 self.assertNotIn("test_status", unchanged.json())
                 self.assertEqual(len(sent_messages), 1)
+
+
+class HttpPoolSelfHealTest(unittest.TestCase):
+    def test_network_failure_detection(self) -> None:
+        ok = {"status": "ok"}
+        server_busy = {
+            "status": "error",
+            "error": "Binance 查询失败: Binance 未返回可用的订单记录：The system is currently busy",
+        }
+        order_timeout = {
+            "status": "error",
+            "error": "Binance 查询失败: Binance 订单请求两次均在 8.5 秒内未完成",
+        }
+        connect_error = {"status": "error", "error": "Binance 查询失败: ConnectError：网络请求失败"}
+        drawdown_timeout = {
+            "status": "error",
+            "error": "Binance 回撤查询失败（已重试 3 次）: TimeoutError：未提供错误详情",
+        }
+        self.assertFalse(is_network_failure(ok))
+        self.assertFalse(is_network_failure(server_busy))
+        self.assertTrue(is_network_failure(order_timeout))
+        self.assertTrue(is_network_failure(connect_error))
+        self.assertTrue(is_network_failure(drawdown_timeout))
+
+    def test_streak_increments_on_quota_and_resets(self) -> None:
+        quarter_fail = [{"status": "error", "error": "TimeoutError"}] + [{"status": "ok"}] * 3
+        below_quota = [{"status": "error", "error": "TimeoutError"}] + [{"status": "ok"}] * 99
+        clean = [{"status": "ok"}] * 4
+        streak = next_pool_rebuild_streak(0, quarter_fail)
+        self.assertEqual(streak, 1)
+        self.assertEqual(next_pool_rebuild_streak(streak, quarter_fail), 2)
+        self.assertEqual(next_pool_rebuild_streak(2, below_quota), 0)
+        self.assertEqual(next_pool_rebuild_streak(1, clean), 0)
+        self.assertEqual(next_pool_rebuild_streak(3, []), 0)
+
+    def test_single_monitor_round_still_counts(self) -> None:
+        results = [{"status": "error", "error": "Binance 订单请求两次均在 8.5 秒内未完成"}]
+        self.assertEqual(next_pool_rebuild_streak(0, results), 1)
