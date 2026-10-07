@@ -1456,7 +1456,7 @@ class MainTests(unittest.TestCase):
         self.assertIn("数量 0.632 XAU", details)
         self.assertIn("均价 4667.13 USDT", details)
 
-    def test_operation_notification_includes_leverage_pnl_links_and_performance(self) -> None:
+    def test_operation_notification_pnl_links_and_performance(self) -> None:
         operation = {
             "occurred_at": 1,
             "symbol": "XAUUSDT",
@@ -1496,7 +1496,7 @@ class MainTests(unittest.TestCase):
             performance,
         )
 
-        self.assertIn("参考杠杆: 12x", text)
+        self.assertNotIn("参考杠杆", text)
         self.assertIn("带单人: Leader\n", text)
         self.assertNotIn("monitor.example.com", text)
         self.assertIn("操作: ↘ 平多", text)
@@ -1516,7 +1516,7 @@ class MainTests(unittest.TestCase):
         self.assertIn("- 📦 数量：0.632 XAU", markdown_text)
         self.assertIn("- 💰 均价：**4,667.13** USDT", markdown_text)
         self.assertIn("- 🧮 总值：**2,949.63** USDT", markdown_text)
-        self.assertIn("- ⚙️ 参考杠杆：**12x**", markdown_text)
+        self.assertNotIn("参考杠杆", markdown_text)
         self.assertIn("- 💵 本次实现盈亏：**+3.5 USDT**", markdown_text)
         self.assertIn("> 带单余额：**18,256.38 USDT**", markdown_text)
         self.assertIn("> 资产管理规模：**25,212.35 USDT**", markdown_text)
@@ -1551,12 +1551,12 @@ class MainTests(unittest.TestCase):
             {**operation, "reference_leverage": None, "realized_profit": "0"},
             None,
         )
-        self.assertIn("参考杠杆: 暂无", no_data_text)
+        self.assertNotIn("参考杠杆", no_data_text)
         self.assertIn("本次实现盈亏: 暂无", no_data_text)
         self.assertNotIn("带单余额", no_data_text)
         self.assertNotIn("资产管理规模", no_data_text)
         self.assertNotIn("资产规模", no_data_markdown)
-        self.assertIn("- ⚙️ 参考杠杆：暂无", no_data_markdown)
+        self.assertNotIn("参考杠杆", no_data_markdown)
         self.assertIn("- 💵 本次实现盈亏：暂无", no_data_markdown)
 
         with patch("app.main.DASHBOARD_BASE_URL", ""):

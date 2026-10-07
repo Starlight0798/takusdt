@@ -2717,7 +2717,6 @@ def format_operation_notification(
     action = notification_action(operation)
     amount = f"{operation['qty']} {operation['base_asset']}".strip()
     symbol = str(operation["symbol"])
-    leverage = str(operation.get("reference_leverage") or "")
     margin_balance = decimal_value(monitor.get("margin_balance"))
     if not margin_balance.is_finite() or margin_balance <= 0:
         margin_balance = None
@@ -2746,7 +2745,6 @@ def format_operation_notification(
         f"均价: {operation['price']} USDT",
         f"总值: {operation['quantity']} USDT",
         *([position_line] if position_line else []),
-        f"参考杠杆: {f'{leverage}x' if leverage else '暂无'}",
         f"本次实现盈亏: {notification_realized_profit(operation)}",
         *finance_lines,
         "带单人表现:",
@@ -2763,7 +2761,6 @@ def format_operation_notification(
         f"均价: {html.escape(str(operation['price']))} USDT",
         f"总值: {html.escape(str(operation['quantity']))} USDT",
         *([html.escape(position_line)] if position_line else []),
-        f"参考杠杆: {html.escape(f'{leverage}x' if leverage else '暂无')}",
         f"本次实现盈亏: {html.escape(notification_realized_profit(operation))}",
         *(html.escape(line) for line in finance_lines),
         "<b>带单人表现:</b>",
@@ -2779,7 +2776,6 @@ def format_operation_notification(
         price_text=format_md_amount(operation["price"]),
         total_text=format_md_amount(operation["quantity"]),
         position_line=position_line,
-        leverage_text=f"{leverage}x" if leverage else "暂无",
         realized_profit_text=notification_realized_profit(operation),
         finance_rows=finance_rows,
         period_rows=notification_period_rows(performance),
@@ -2799,7 +2795,6 @@ def markdown_operation_notification(
     price_text: str,
     total_text: str,
     position_line: str | None,
-    leverage_text: str,
     realized_profit_text: str,
     finance_rows: list[tuple[str, str]],
     period_rows: list[tuple[str, str, str, str]],
@@ -2822,7 +2817,6 @@ def markdown_operation_notification(
         f"- 💰 均价：{value(price_text)} USDT",
         f"- 🧮 总值：{value(total_text)} USDT",
         *position_bullet,
-        f"- ⚙️ 参考杠杆：{value(leverage_text)}",
         f"- 💵 本次实现盈亏：{value(realized_profit_text)}",
     ]
     performance_quotes = [
@@ -2852,11 +2846,9 @@ def notification_operation_details(operation: dict[str, Any]) -> str:
         operation["side"], operation["position_side"], operation.get("realized_profit")
     )[0]
     amount = f"{operation['qty']} {operation['base_asset']}".strip()
-    leverage = str(operation.get("reference_leverage") or "")
     return (
         f"{format_operation_time(operation['occurred_at'])} | {operation['symbol']} {action}"
         f" | 数量 {amount} | 均价 {operation['price']} USDT | 总值 {operation['quantity']} USDT"
-        f" | 杠杆 {f'{leverage}x' if leverage else '暂无'}"
         f" | 已实现盈亏 {notification_realized_profit(operation)}"
     )
 
