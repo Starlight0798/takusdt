@@ -1479,8 +1479,18 @@ class MainTests(unittest.TestCase):
         self.assertEqual(format_push_delay(0), "暂无")
         self.assertEqual(format_push_delay(None), "暂无")
         self.assertEqual(format_push_delay(1000, now_ms=1500), "0 秒")
-        self.assertEqual(format_push_delay(1000, now_ms=3_661_000), "1 小时 1 分 00 秒")
+        self.assertEqual(format_push_delay(1000, now_ms=3_661_000), "1 小时 01 分 00 秒")
         self.assertEqual(format_push_delay(2000, now_ms=1000), "0 秒")
+
+        unknown_text, _, unknown_markdown = format_operation_notification(
+            {"name": "Leader", "url": SOURCE_URL},
+            {**operation, "occurred_at": 0},
+            None,
+            now_ms=126_000,
+        )
+        self.assertIn("时间: 未知时间", unknown_text)
+        self.assertNotIn("距推送", unknown_text)
+        self.assertNotIn("距推送", unknown_markdown)
 
     def test_operation_notification_pnl_links_and_performance(self) -> None:
         operation = {
