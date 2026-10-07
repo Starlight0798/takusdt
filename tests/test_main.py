@@ -38,7 +38,7 @@ from app.main import (
     fetch_binance_position_history,
     fetch_binance_symbol_precisions,
     fetch_binance_trade_history,
-    fetch_leader_drawdowns,
+    fetch_leader_performances,
     fetch_leader_finance,
     fetch_leader_name,
     keyed_records,
@@ -299,7 +299,7 @@ class MainTests(unittest.TestCase):
         self.assertEqual(dashboard["metrics"]["error_count"], 1)
         self.assertEqual(
             {item["scope"] for item in dashboard["current_errors"]},
-            {"订单查询", "回撤查询", "参考杠杆", "成交预警"},
+            {"订单查询", "带单表现", "参考杠杆", "成交预警"},
         )
         self.assertTrue(
             all(
@@ -758,7 +758,7 @@ class MainTests(unittest.TestCase):
             attempts.append(portfolio_id)
             if len(attempts) == 1:
                 raise httpx.ConnectError("网络请求失败")
-            return {"7d": 0.031, "30d": 0.244, "90d": None}
+            return {"drawdown_7d": 0.031, "drawdown_30d": 0.244, "drawdown_90d": None}
 
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             os.environ, {"ADMIN_PASSWORD": "test-admin-password"}
@@ -779,7 +779,7 @@ class MainTests(unittest.TestCase):
                 logs = [
                     entry
                     for entry in store.system_logs()
-                    if entry["event"] == "Binance 回撤查询"
+                    if entry["event"] == "Binance 带单表现"
                 ]
                 state = store.get_monitor(monitor["id"])
                 store.close()
@@ -822,7 +822,7 @@ class MainTests(unittest.TestCase):
                 logs = [
                     entry
                     for entry in store.system_logs()
-                    if entry["event"] == "Binance 回撤查询"
+                    if entry["event"] == "Binance 带单表现"
                 ]
                 state = store.get_monitor(monitor["id"])
                 store.close()
@@ -833,8 +833,8 @@ class MainTests(unittest.TestCase):
         )
         self.assertIn("第 1/3 次尝试失败", logs[2]["message"])
         self.assertIn("第 2/3 次尝试失败", logs[1]["message"])
-        self.assertIn("Binance 回撤查询失败（已重试 3 次）", logs[0]["message"])
-        self.assertIn("Binance 回撤查询失败（已重试 3 次）", state["last_drawdown_error"])
+        self.assertIn("Binance 带单表现查询失败（已重试 3 次）", logs[0]["message"])
+        self.assertIn("Binance 带单表现查询失败（已重试 3 次）", state["last_drawdown_error"])
 
     def test_poll_monitor_skips_writes_when_monitor_deleted_midflight(self) -> None:
         async def fetch_records(
@@ -927,7 +927,14 @@ class MainTests(unittest.TestCase):
             return f"带单员 {portfolio_id[-4:]}"
 
         async def fake_drawdowns(_, __: str):
-            return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
+            return {
+                "drawdown_7d": 0.0, "drawdown_30d": 0.0, "drawdown_90d": 0.0,
+                "roi_7d": None, "roi_30d": None, "roi_90d": None,
+                "win_rate_7d": None, "win_rate_30d": None, "win_rate_90d": None,
+                "pnl_7d": None, "pnl_30d": None, "pnl_90d": None,
+                "win_orders_7d": None, "win_orders_30d": None, "win_orders_90d": None,
+                "total_orders_7d": None, "total_orders_30d": None, "total_orders_90d": None,
+            }
 
         async def fake_finance(_, __: str):
             return ("18256.38", "25212.35")
@@ -980,7 +987,14 @@ class MainTests(unittest.TestCase):
             return f"带单员 {portfolio_id[-4:]}"
 
         async def fake_drawdowns(_, __: str):
-            return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
+            return {
+                "drawdown_7d": 0.0, "drawdown_30d": 0.0, "drawdown_90d": 0.0,
+                "roi_7d": None, "roi_30d": None, "roi_90d": None,
+                "win_rate_7d": None, "win_rate_30d": None, "win_rate_90d": None,
+                "pnl_7d": None, "pnl_30d": None, "pnl_90d": None,
+                "win_orders_7d": None, "win_orders_30d": None, "win_orders_90d": None,
+                "total_orders_7d": None, "total_orders_30d": None, "total_orders_90d": None,
+            }
 
         async def fake_finance(_, __: str):
             return ("18256.38", "25212.35")
@@ -1028,7 +1042,14 @@ class MainTests(unittest.TestCase):
             return f"带单员 {portfolio_id[-4:]}"
 
         async def fake_drawdowns(_, __: str):
-            return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
+            return {
+                "drawdown_7d": 0.0, "drawdown_30d": 0.0, "drawdown_90d": 0.0,
+                "roi_7d": None, "roi_30d": None, "roi_90d": None,
+                "win_rate_7d": None, "win_rate_30d": None, "win_rate_90d": None,
+                "pnl_7d": None, "pnl_30d": None, "pnl_90d": None,
+                "win_orders_7d": None, "win_orders_30d": None, "win_orders_90d": None,
+                "total_orders_7d": None, "total_orders_30d": None, "total_orders_90d": None,
+            }
 
         async def fake_finance(_, __: str):
             return ("18256.38", "25212.35")
@@ -1084,7 +1105,14 @@ class MainTests(unittest.TestCase):
             return f"带单员 {portfolio_id[-4:]}"
 
         async def fake_drawdowns(_, __: str):
-            return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
+            return {
+                "drawdown_7d": 0.0, "drawdown_30d": 0.0, "drawdown_90d": 0.0,
+                "roi_7d": None, "roi_30d": None, "roi_90d": None,
+                "win_rate_7d": None, "win_rate_30d": None, "win_rate_90d": None,
+                "pnl_7d": None, "pnl_30d": None, "pnl_90d": None,
+                "win_orders_7d": None, "win_orders_30d": None, "win_orders_90d": None,
+                "total_orders_7d": None, "total_orders_30d": None, "total_orders_90d": None,
+            }
 
         async def fake_finance(_, __: str):
             return ("18256.38", "25212.35")
@@ -1135,7 +1163,14 @@ class MainTests(unittest.TestCase):
             return f"带单员 {portfolio_id[-4:]}"
 
         async def fake_drawdowns(_, __: str):
-            return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
+            return {
+                "drawdown_7d": 0.0, "drawdown_30d": 0.0, "drawdown_90d": 0.0,
+                "roi_7d": None, "roi_30d": None, "roi_90d": None,
+                "win_rate_7d": None, "win_rate_30d": None, "win_rate_90d": None,
+                "pnl_7d": None, "pnl_30d": None, "pnl_90d": None,
+                "win_orders_7d": None, "win_orders_30d": None, "win_orders_90d": None,
+                "total_orders_7d": None, "total_orders_30d": None, "total_orders_90d": None,
+            }
 
         async def fake_finance(_, __: str):
             return ("18256.38", "25212.35")
@@ -1220,7 +1255,14 @@ class MainTests(unittest.TestCase):
             return f"带单员 {portfolio_id[-4:]}"
 
         async def fake_drawdowns(_, __: str):
-            return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
+            return {
+                "drawdown_7d": 0.0, "drawdown_30d": 0.0, "drawdown_90d": 0.0,
+                "roi_7d": None, "roi_30d": None, "roi_90d": None,
+                "win_rate_7d": None, "win_rate_30d": None, "win_rate_90d": None,
+                "pnl_7d": None, "pnl_30d": None, "pnl_90d": None,
+                "win_orders_7d": None, "win_orders_30d": None, "win_orders_90d": None,
+                "total_orders_7d": None, "total_orders_30d": None, "total_orders_90d": None,
+            }
 
         async def fake_finance(_, __: str):
             return ("18256.38", "25212.35")
@@ -1297,7 +1339,14 @@ class MainTests(unittest.TestCase):
             return [matching_trade]
 
         async def fake_drawdowns(_, __: str):
-            return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
+            return {
+                "drawdown_7d": 0.0, "drawdown_30d": 0.0, "drawdown_90d": 0.0,
+                "roi_7d": None, "roi_30d": None, "roi_90d": None,
+                "win_rate_7d": None, "win_rate_30d": None, "win_rate_90d": None,
+                "pnl_7d": None, "pnl_30d": None, "pnl_90d": None,
+                "win_orders_7d": None, "win_orders_30d": None, "win_orders_90d": None,
+                "total_orders_7d": None, "total_orders_30d": None, "total_orders_90d": None,
+            }
 
         async def fake_finance(_, __: str):
             return ("18256.38", "25212.35")
@@ -1428,8 +1477,9 @@ class MainTests(unittest.TestCase):
                     "win_rate": 75.0,
                     "max_drawdown": 2.5,
                     "roi": 16.6,
-                    "pnl": [{"amount": "3030.76", "asset": "USDT"}],
-                    "conservative_win_rate": 66.7,
+                    "pnl": 3030.76,
+                    "win_orders": 30,
+                    "total_orders": 40,
                 },
                 "90d": {"win_rate": 60.0, "max_drawdown": None},
             }
@@ -1460,7 +1510,7 @@ class MainTests(unittest.TestCase):
         self.assertIn("7D 胜率: 100.0% | 收益率: 暂无 | 最大回撤: 0.01%", text)
         self.assertIn("30D 胜率: 75.0% | 收益率: +16.60% | 最大回撤: 2.5%", text)
         self.assertIn("90D 胜率: 60.0% | 收益率: 暂无 | 最大回撤: 暂无", text)
-        self.assertIn("30D 已实现盈亏：3030.76 USDT · 保守胜率：66.7%", text)
+        self.assertIn("30D 已实现盈亏：+3,030.76 USDT · 胜场：30/40", text)
         self.assertIn("### ↘ 平多 · XAUUSDT", markdown_text)
         self.assertIn("👤 **Leader**\n\n🕒 ", markdown_text)
         self.assertIn("- 📦 数量：0.632 XAU", markdown_text)
@@ -1472,7 +1522,7 @@ class MainTests(unittest.TestCase):
         self.assertIn("> 资产管理规模：**25,212.35 USDT**", markdown_text)
         self.assertIn("> 30D　胜率 **75.0%** ｜ 收益率 **+16.60%** ｜ 回撤 2.5%", markdown_text)
         self.assertIn("> 90D　胜率 **60.0%** ｜ 收益率 暂无 ｜ 回撤 暂无", markdown_text)
-        self.assertIn("> 30D 已实现盈亏 **3030.76 USDT** · 保守胜率 66.7%", markdown_text)
+        self.assertIn("> 30D 已实现盈亏 **+3,030.76 USDT** · 胜场 **30/40**", markdown_text)
         self.assertNotIn("带单地址", text)
         self.assertNotIn("UTC+8", text)
         self.assertNotIn("<a ", html_text)
@@ -1740,81 +1790,106 @@ class MainTests(unittest.TestCase):
             {"BTCUSDT": (2, 3), "XAUUSDT": (2, 3), "MUUSDT": (5, 2)},
         )
 
-    def test_leader_drawdown_uses_daily_roi_peak_to_trough(self) -> None:
-        roi_values = {
-            "7D": [10, 5, 12],
-            "30D": [20, 15, 10],
-            "90D": [],
+    def test_fetch_leader_performances_parses_official_payload(self) -> None:
+        payloads = {
+            "7D": {
+                "code": "000000",
+                "data": {
+                    "roi": 12.3456,
+                    "mdd": 4.5,
+                    "winRate": 66.67,
+                    "pnl": 1234.5,
+                    "winOrders": 20,
+                    "totalOrder": 30,
+                },
+            },
+            "30D": {
+                "code": "000000",
+                "data": {
+                    "roi": None,
+                    "mdd": None,
+                    "winRate": None,
+                    "pnl": None,
+                    "winOrders": None,
+                    "totalOrder": None,
+                },
+            },
+            "90D": {"code": "000000", "data": {}},
         }
 
         async def handler(request: httpx.Request) -> httpx.Response:
-            self.assertTrue(request.url.path.endswith("chart-data"))
+            self.assertTrue(request.url.path.endswith("lead-portfolio/performance"))
             time_range = request.url.params["timeRange"]
-            self.assertEqual(request.url.params["dataType"], "ROI")
-            return httpx.Response(
-                200,
-                json={
-                    "code": "000000",
-                    "data": [
-                        {"dateTime": index, "value": value}
-                        for index, value in enumerate(roi_values[time_range], start=1)
-                    ],
-                },
-            )
+            self.assertNotIn("dataType", request.url.params)
+            return httpx.Response(200, json=payloads[time_range])
 
-        async def request_drawdowns() -> dict[str, float | None]:
+        async def request_performances() -> dict[str, float | int | None]:
             async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-                return await fetch_leader_drawdowns(client, "5075281354358777856")
+                return await fetch_leader_performances(client, "5075281354358777856")
 
         self.assertEqual(
-            asyncio.run(request_drawdowns()),
-            {"7d": 4.55, "30d": 8.33, "90d": None, "roi_7d": 12.0, "roi_30d": 10.0, "roi_90d": None},
+            asyncio.run(request_performances()),
+            {
+                "drawdown_7d": 4.5,
+                "drawdown_30d": None,
+                "drawdown_90d": None,
+                "roi_7d": 12.35,
+                "roi_30d": None,
+                "roi_90d": None,
+                "win_rate_7d": 66.67,
+                "win_rate_30d": None,
+                "win_rate_90d": None,
+                "pnl_7d": 1234.5,
+                "pnl_30d": None,
+                "pnl_90d": None,
+                "win_orders_7d": 20,
+                "win_orders_30d": None,
+                "win_orders_90d": None,
+                "total_orders_7d": 30,
+                "total_orders_30d": None,
+                "total_orders_90d": None,
+            },
         )
 
-
-    def test_leader_drawdown_roi_uses_latest_point_by_time(self) -> None:
-        async def handler(request: httpx.Request) -> httpx.Response:
-            if request.url.params["timeRange"] == "30D":
-                points = [
-                    {"dateTime": 30, "value": 40},
-                    {"dateTime": 10, "value": 20},
-                    {"dateTime": 20, "value": 10},
-                ]
-            else:
-                points = [{"dateTime": 5, "value": 6}]
-            return httpx.Response(200, json={"code": "000000", "data": points})
-
-        async def request_drawdowns() -> dict[str, float | None]:
-            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-                return await fetch_leader_drawdowns(client, "5075281354358777856")
-
-        result = asyncio.run(request_drawdowns())
-        # 乱序数组按时间排序后净值 120 -> 110 -> 140：官方收益率取时间末点 40，峰谷回撤 8.33%。
-        self.assertEqual(result["roi_30d"], 40.0)
-        self.assertEqual(result["30d"], 8.33)
-
-    def test_persisted_roi_round_trips_through_performance(self) -> None:
+    def test_official_performance_round_trips_through_store(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "monitor.db")
             store.initialize("test-admin-password")
             monitor = store.create_monitor(
                 "Leader", "", SOURCE_URL, "5075281354358777856"
             )
-            store.update_monitor_drawdowns(
+            store.update_monitor_performance(
                 monitor["id"],
                 {
-                    "7d": 1.5,
-                    "30d": 2.5,
-                    "90d": None,
+                    "drawdown_7d": 1.5,
+                    "drawdown_30d": 2.5,
+                    "drawdown_90d": None,
                     "roi_7d": 12.34,
                     "roi_30d": 56.78,
                     "roi_90d": None,
+                    "win_rate_7d": 61.1,
+                    "win_rate_30d": 55.5,
+                    "win_rate_90d": None,
+                    "win_orders_7d": 11,
+                    "win_orders_30d": 45,
+                    "win_orders_90d": None,
+                    "total_orders_7d": 18,
+                    "total_orders_30d": 81,
+                    "total_orders_90d": None,
+                    "pnl_7d": 100.25,
+                    "pnl_30d": -50.5,
+                    "pnl_90d": None,
                 },
             )
             periods = store.performance(monitor["id"])[0]["periods"]
             self.assertEqual(periods["7d"]["roi"], 12.34)
             self.assertEqual(periods["30d"]["roi"], 56.78)
             self.assertIsNone(periods["90d"]["roi"])
+            self.assertEqual(periods["30d"]["win_rate"], 55.5)
+            self.assertEqual(periods["30d"]["win_orders"], 45)
+            self.assertEqual(periods["30d"]["total_orders"], 81)
+            self.assertEqual(periods["30d"]["max_drawdown"], 2.5)
+            self.assertEqual(periods["30d"]["pnl"], -50.5)
             store.close()
     def test_leader_name_uses_detail_endpoint_nickname(self) -> None:
         async def handler(request: httpx.Request) -> httpx.Response:
@@ -2204,7 +2279,14 @@ class MainTests(unittest.TestCase):
             return f"带单员 {portfolio_id[-4:]}"
 
         async def fake_drawdowns(_, __: str):
-            return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
+            return {
+                "drawdown_7d": 0.0, "drawdown_30d": 0.0, "drawdown_90d": 0.0,
+                "roi_7d": None, "roi_30d": None, "roi_90d": None,
+                "win_rate_7d": None, "win_rate_30d": None, "win_rate_90d": None,
+                "pnl_7d": None, "pnl_30d": None, "pnl_90d": None,
+                "win_orders_7d": None, "win_orders_30d": None, "win_orders_90d": None,
+                "total_orders_7d": None, "total_orders_30d": None, "total_orders_90d": None,
+            }
 
         async def fake_finance(_, __: str):
             return ("18256.38", "25212.35")
@@ -2315,7 +2397,14 @@ class MainTests(unittest.TestCase):
             return f"带单员 {portfolio_id[-4:]}"
 
         async def fake_drawdowns(_, __: str):
-            return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
+            return {
+                "drawdown_7d": 0.0, "drawdown_30d": 0.0, "drawdown_90d": 0.0,
+                "roi_7d": None, "roi_30d": None, "roi_90d": None,
+                "win_rate_7d": None, "win_rate_30d": None, "win_rate_90d": None,
+                "pnl_7d": None, "pnl_30d": None, "pnl_90d": None,
+                "win_orders_7d": None, "win_orders_30d": None, "win_orders_90d": None,
+                "total_orders_7d": None, "total_orders_30d": None, "total_orders_90d": None,
+            }
 
         async def fake_finance(_, __: str):
             return ("18256.38", "25212.35")
@@ -2376,7 +2465,14 @@ class MainTests(unittest.TestCase):
             return f"带单员 {portfolio_id[-4:]}"
 
         async def fake_drawdowns(_, __: str):
-            return {"7d": 0.0, "30d": 0.0, "90d": 0.0}
+            return {
+                "drawdown_7d": 0.0, "drawdown_30d": 0.0, "drawdown_90d": 0.0,
+                "roi_7d": None, "roi_30d": None, "roi_90d": None,
+                "win_rate_7d": None, "win_rate_30d": None, "win_rate_90d": None,
+                "pnl_7d": None, "pnl_30d": None, "pnl_90d": None,
+                "win_orders_7d": None, "win_orders_30d": None, "win_orders_90d": None,
+                "total_orders_7d": None, "total_orders_30d": None, "total_orders_90d": None,
+            }
 
         async def fake_finance(_, __: str):
             return ("18256.38", "25212.35")
@@ -2448,7 +2544,14 @@ class MainTests(unittest.TestCase):
 
         async def fake_drawdowns(_, portfolio_id: str):
             self.assertEqual(portfolio_id, "5075281354358777856")
-            return {"7d": 4.55, "30d": 8.33, "90d": 12.34}
+            return {
+                "drawdown_7d": 4.55, "drawdown_30d": 8.33, "drawdown_90d": 12.34,
+                "roi_7d": 12.0, "roi_30d": 34.5, "roi_90d": 56.7,
+                "win_rate_7d": 50.0, "win_rate_30d": 62.5, "win_rate_90d": 55.0,
+                "pnl_7d": 111.1, "pnl_30d": 2222.2, "pnl_90d": 33333.3,
+                "win_orders_7d": 5, "win_orders_30d": 25, "win_orders_90d": 77,
+                "total_orders_7d": 10, "total_orders_30d": 40, "total_orders_90d": 140,
+            }
 
         async def fake_finance(_, portfolio_id: str):
             self.assertEqual(portfolio_id, "5075281354358777856")
@@ -2530,10 +2633,16 @@ class MainTests(unittest.TestCase):
                 self.assertEqual(operations[1]["action"], "平多")
                 self.assertEqual(operations[0]["notification_status"], "skipped")
                 performance = client.get("/api/performance").json()["items"][0]
-                for period in ("7d", "30d", "90d"):
-                    self.assertEqual(performance["periods"][period]["wins"], 1)
-                    self.assertEqual(performance["periods"][period]["losses"], 1)
-                    self.assertEqual(performance["periods"][period]["win_rate"], 50.0)
+                expected = {
+                    "7d": {"win_rate": 50.0, "roi": 12.0, "max_drawdown": 4.55, "pnl": 111.1},
+                    "30d": {"win_rate": 62.5, "roi": 34.5, "max_drawdown": 8.33, "pnl": 2222.2},
+                    "90d": {"win_rate": 55.0, "roi": 56.7, "max_drawdown": 12.34, "pnl": 33333.3},
+                }
+                for period, values in expected.items():
+                    for key, value in values.items():
+                        self.assertEqual(performance["periods"][period][key], value)
+                self.assertEqual(performance["periods"]["30d"]["win_orders"], 25)
+                self.assertEqual(performance["periods"]["30d"]["total_orders"], 40)
 
                 email_settings = client.post(
                     "/api/settings/email",
@@ -2620,7 +2729,7 @@ class HttpPoolSelfHealTest(unittest.TestCase):
         connect_error = {"status": "error", "error": "Binance 查询失败: ConnectError：网络请求失败"}
         drawdown_timeout = {
             "status": "error",
-            "error": "Binance 回撤查询失败（已重试 3 次）: TimeoutError：未提供错误详情",
+            "error": "Binance 带单表现查询失败（已重试 3 次）: TimeoutError：未提供错误详情",
         }
         self.assertFalse(is_network_failure(ok))
         self.assertFalse(is_network_failure(server_busy))

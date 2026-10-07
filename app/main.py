@@ -7,7 +7,6 @@ import html
 import hmac
 import json
 import logging
-import math
 import os
 import re
 import secrets
@@ -16,7 +15,7 @@ import sqlite3
 import threading
 import time
 import traceback
-from collections import Counter, defaultdict
+from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
@@ -50,9 +49,9 @@ BINANCE_POSITION_HISTORY_URL = (
     "copy-trade/lead-portfolio/position-history"
 )
 BINANCE_EXCHANGE_INFO_URL = "https://www.binance.com/fapi/v1/exchangeInfo?showall=true"
-BINANCE_LEADER_CHART_URL = (
+BINANCE_LEADER_PERFORMANCE_URL = (
     "https://www.binance.com/bapi/futures/v1/public/future/"
-    "copy-trade/lead-portfolio/chart-data"
+    "copy-trade/lead-portfolio/performance"
 )
 POLL_INTERVAL_SECONDS = 20
 MIN_POLL_INTERVAL_SECONDS = 5
@@ -86,7 +85,7 @@ LOGGER = logging.getLogger("copy-watch")
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 MONITOR_ERROR_FIELDS = (
     ("last_error", "订单查询"),
-    ("last_drawdown_error", "回撤查询"),
+    ("last_drawdown_error", "带单表现"),
     ("last_leverage_error", "参考杠杆"),
     ("last_trade_alert_error", "成交预警"),
 )
@@ -96,7 +95,7 @@ PositionHistoryFetcher = Callable[
     [httpx.AsyncClient, str, int, int], Awaitable[list[dict[str, Any]]]
 ]
 LeaderNameFetcher = Callable[[httpx.AsyncClient, str, str], Awaitable[str]]
-DrawdownFetcher = Callable[[httpx.AsyncClient, str], Awaitable[dict[str, float | None]]]
+DrawdownFetcher = Callable[[httpx.AsyncClient, str], Awaitable[dict[str, float | int | None]]]
 LeaderFinanceFetcher = Callable[[httpx.AsyncClient, str], Awaitable[tuple[str, str]]]
 SymbolPrecisionFetcher = Callable[[httpx.AsyncClient], Awaitable[dict[str, tuple[int, int]]]]
 
@@ -438,67 +437,6 @@ def operation_action(
     )
 
 
-def wilson_lower_bound(wins: int, settled_records: int) -> float | None:
-    if not settled_records:
-        return None
-    proportion = wins / settled_records
-    z = 1.96
-    denominator = 1 + z * z / settled_records
-    centre = proportion + z * z / (2 * settled_records)
-    adjustment = z * math.sqrt(
-        proportion * (1 - proportion) / settled_records + z * z / (4 * settled_records**2)
-    )
-    return max(0.0, (centre - adjustment) / denominator * 100)
-
-
-def sample_reliability(settled_records: int) -> str:
-    if settled_records >= 50:
-        return "高"
-    if settled_records >= 20:
-        return "中"
-    if settled_records:
-        return "低"
-    return "暂无"
-
-
-def period_performance(
-    records: list[tuple[int, dict[str, Any]]], cutoff: int
-) -> dict[str, Any]:
-    total_records = 0
-    settled_records = 0
-    wins = 0
-    losses = 0
-    pnl_by_asset: defaultdict[str, Decimal] = defaultdict(Decimal)
-    for occurred_at, payload in records:
-        if occurred_at < cutoff:
-            continue
-        total_records += 1
-        profit = decimal_value(payload.get("realizedProfit"))
-        if not profit:
-            continue
-        settled_records += 1
-        if profit > 0:
-            wins += 1
-        else:
-            losses += 1
-        pnl_by_asset[str(payload.get("realizedProfitAsset") or "USDT")] += profit
-
-    conservative_win_rate = wilson_lower_bound(wins, settled_records)
-    return {
-        "total_records": total_records,
-        "settled_records": settled_records,
-        "wins": wins,
-        "losses": losses,
-        "win_rate": round(wins / settled_records * 100, 1) if settled_records else None,
-        "conservative_win_rate": (
-            round(conservative_win_rate, 1) if conservative_win_rate is not None else None
-        ),
-        "sample_reliability": sample_reliability(settled_records),
-        "pnl": [
-            {"asset": asset, "amount": decimal_text(amount)}
-            for asset, amount in sorted(pnl_by_asset.items())
-        ],
-    }
 
 
 class Store:
@@ -691,6 +629,11 @@ class Store:
             self._ensure_column("monitors", "roi_7d", "REAL")
             self._ensure_column("monitors", "roi_30d", "REAL")
             self._ensure_column("monitors", "roi_90d", "REAL")
+            for suffix in ("7d", "30d", "90d"):
+                self._ensure_column("monitors", f"win_rate_{suffix}", "REAL")
+                self._ensure_column("monitors", f"win_orders_{suffix}", "INTEGER")
+                self._ensure_column("monitors", f"total_orders_{suffix}", "INTEGER")
+                self._ensure_column("monitors", f"pnl_{suffix}", "REAL")
             self._ensure_column("monitors", "drawdown_updated_at", "TEXT")
             self._ensure_column("monitors", "last_drawdown_error", "TEXT")
             self._ensure_column("monitors", "last_leverage_error", "TEXT")
@@ -886,6 +829,10 @@ class Store:
                     last_error = NULL, drawdown_7d = NULL, drawdown_30d = NULL,
                     drawdown_90d = NULL, drawdown_updated_at = NULL, last_drawdown_error = NULL,
                     roi_7d = NULL, roi_30d = NULL, roi_90d = NULL,
+                    win_rate_7d = NULL, win_rate_30d = NULL, win_rate_90d = NULL,
+                    win_orders_7d = NULL, win_orders_30d = NULL, win_orders_90d = NULL,
+                    total_orders_7d = NULL, total_orders_30d = NULL, total_orders_90d = NULL,
+                    pnl_7d = NULL, pnl_30d = NULL, pnl_90d = NULL,
                     last_leverage_error = NULL, last_trade_alert_error = NULL
                 """
             )
@@ -1134,23 +1081,41 @@ class Store:
             self.connection.commit()
         return bool(row and row["last_error"] != message)
 
-    def update_monitor_drawdowns(self, monitor_id: int, drawdowns: dict[str, float | None]) -> None:
+    def update_monitor_performance(
+        self, monitor_id: int, performances: dict[str, float | int | None]
+    ) -> None:
         with self.lock:
             self.connection.execute(
                 """
                 UPDATE monitors
                 SET drawdown_7d = ?, drawdown_30d = ?, drawdown_90d = ?,
                     roi_7d = ?, roi_30d = ?, roi_90d = ?,
+                    win_rate_7d = ?, win_rate_30d = ?, win_rate_90d = ?,
+                    win_orders_7d = ?, win_orders_30d = ?, win_orders_90d = ?,
+                    total_orders_7d = ?, total_orders_30d = ?, total_orders_90d = ?,
+                    pnl_7d = ?, pnl_30d = ?, pnl_90d = ?,
                     drawdown_updated_at = ?, last_drawdown_error = NULL
                 WHERE id = ?
                 """,
                 (
-                    drawdowns.get("7d"),
-                    drawdowns.get("30d"),
-                    drawdowns.get("90d"),
-                    drawdowns.get("roi_7d"),
-                    drawdowns.get("roi_30d"),
-                    drawdowns.get("roi_90d"),
+                    performances.get("drawdown_7d"),
+                    performances.get("drawdown_30d"),
+                    performances.get("drawdown_90d"),
+                    performances.get("roi_7d"),
+                    performances.get("roi_30d"),
+                    performances.get("roi_90d"),
+                    performances.get("win_rate_7d"),
+                    performances.get("win_rate_30d"),
+                    performances.get("win_rate_90d"),
+                    performances.get("win_orders_7d"),
+                    performances.get("win_orders_30d"),
+                    performances.get("win_orders_90d"),
+                    performances.get("total_orders_7d"),
+                    performances.get("total_orders_30d"),
+                    performances.get("total_orders_90d"),
+                    performances.get("pnl_7d"),
+                    performances.get("pnl_30d"),
+                    performances.get("pnl_90d"),
                     utc_now(),
                     monitor_id,
                 ),
@@ -1673,6 +1638,7 @@ class Store:
         }
 
     def performance(self, monitor_id: int | None = None) -> list[dict[str, Any]]:
+        """带单表现全部取自币安跟单平台官方 performance 接口写入的列，不做本地计算。"""
         if monitor_id is None:
             monitors = {monitor["id"]: monitor for monitor in self.list_monitors()}
         else:
@@ -1680,41 +1646,35 @@ class Store:
             if not monitor:
                 return []
             monitors = {monitor_id: monitor}
-        records_by_monitor: dict[int, list[tuple[int, dict[str, Any]]]] = defaultdict(list)
+        stored_counts: dict[int, int] = {}
         with self.lock:
-            if monitor_id is None:
-                rows = self.connection.execute(
-                    "SELECT monitor_id, occurred_at, payload_json FROM operations"
-                ).fetchall()
-            else:
-                rows = self.connection.execute(
-                    "SELECT monitor_id, occurred_at, payload_json FROM operations WHERE monitor_id = ?",
-                    (monitor_id,),
-                ).fetchall()
-        for row in rows:
-            try:
-                payload = json.loads(row["payload_json"])
-            except json.JSONDecodeError:
-                continue
-            records_by_monitor[row["monitor_id"]].append((row["occurred_at"], payload))
+            id_list = ",".join(str(key) for key in monitors)
+            for row in self.connection.execute(
+                f"SELECT monitor_id, COUNT(*) AS total FROM operations "
+                f"WHERE monitor_id IN ({id_list}) GROUP BY monitor_id"
+            ):
+                stored_counts[row["monitor_id"]] = row["total"]
 
-        now_ms = int(time.time() * 1000)
         result = []
         for monitor_id, monitor in monitors.items():
-            records = records_by_monitor[monitor_id]
             periods = {}
             for days in (7, 30, 90):
-                period = period_performance(records, now_ms - days * 24 * 60 * 60 * 1000)
-                period["max_drawdown"] = monitor.get(f"drawdown_{days}d")
-                period["roi"] = monitor.get(f"roi_{days}d")
-                periods[f"{days}d"] = period
+                suffix = f"{days}d"
+                periods[suffix] = {
+                    "win_rate": monitor.get(f"win_rate_{suffix}"),
+                    "win_orders": monitor.get(f"win_orders_{suffix}"),
+                    "total_orders": monitor.get(f"total_orders_{suffix}"),
+                    "roi": monitor.get(f"roi_{suffix}"),
+                    "max_drawdown": monitor.get(f"drawdown_{suffix}"),
+                    "pnl": monitor.get(f"pnl_{suffix}"),
+                }
             result.append(
                 {
                     "monitor_id": monitor_id,
                     "name": monitor["name"],
                     "note": monitor["note"],
                     "url": monitor["url"],
-                    "stored_records": len(records),
+                    "stored_records": stored_counts.get(monitor_id, 0),
                     "periods": periods,
                     "drawdown_updated_at": monitor.get("drawdown_updated_at"),
                 }
@@ -1724,7 +1684,7 @@ class Store:
             key=lambda item: (
                 item["periods"]["30d"]["win_rate"] is not None,
                 item["periods"]["30d"]["win_rate"] or 0,
-                item["periods"]["30d"]["settled_records"],
+                item["periods"]["30d"]["total_orders"] or 0,
             ),
             reverse=True,
         )
@@ -2423,73 +2383,74 @@ async def fetch_binance_symbol_precisions(
     return result
 
 
-async def fetch_leader_drawdown(
+async def fetch_leader_performance(
     client: httpx.AsyncClient, portfolio_id: str, time_range: str
-) -> tuple[float | None, float | None]:
+) -> dict[str, float | int | None]:
+    """拉取币安跟单平台官方口径的表现数据（胜率/收益率/最大回撤/盈亏/胜场）。"""
     response = await client.get(
-        BINANCE_LEADER_CHART_URL,
-        params={"portfolioId": portfolio_id, "dataType": "ROI", "timeRange": time_range},
+        BINANCE_LEADER_PERFORMANCE_URL,
+        params={"portfolioId": portfolio_id, "timeRange": time_range},
         headers=binance_headers(portfolio_id),
     )
     response.raise_for_status()
     try:
         payload = response.json()
     except json.JSONDecodeError as error:
-        raise PollError("Binance 回撤数据不是 JSON") from error
+        raise PollError("Binance 表现数据不是 JSON") from error
     if not isinstance(payload, dict) or payload.get("success") is False or payload.get("code") not in {
         None,
         "000000",
     }:
         message = payload.get("message") if isinstance(payload, dict) else None
-        raise PollError(f"Binance 未返回可用的回撤数据{f'：{message}' if message else ''}")
+        raise PollError(f"Binance 未返回可用的表现数据{f'：{message}' if message else ''}")
     data = payload.get("data")
-    if not isinstance(data, list):
-        raise PollError("Binance 回撤数据格式无效")
+    if not isinstance(data, dict):
+        raise PollError("Binance 表现数据格式无效")
 
-    points: list[tuple[int, Decimal]] = []
-    for point in data:
-        if not isinstance(point, dict):
-            continue
+    def rate(key: str) -> float | None:
+        raw = data.get(key)
+        if raw is None:
+            return None
         try:
-            timestamp = int(point.get("dateTime"))
-            value = Decimal(str(point.get("value")))
-        except (InvalidOperation, TypeError, ValueError):
-            continue
-        if value.is_finite():
-            points.append((timestamp, value))
-    if not points:
-        return None, None
+            value = float(raw)
+        except (TypeError, ValueError):
+            return None
+        return round(value, 2) if value == value else None
 
-    points.sort(key=lambda point: point[0])
-    period_roi = points[-1][1]
-    peak = points[0][1]
-    maximum_drawdown = Decimal("0")
-    for _, value in points:
-        equity_at_peak = Decimal("100") + peak
-        if equity_at_peak > 0:
-            maximum_drawdown = max(
-                maximum_drawdown,
-                (peak - value) / equity_at_peak * Decimal("100"),
-            )
-        peak = max(peak, value)
-    return (
-        float(maximum_drawdown.quantize(Decimal("0.01"))),
-        float(period_roi.quantize(Decimal("0.01"))),
-    )
+    def count(key: str) -> int | None:
+        raw = data.get(key)
+        if raw is None:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "roi": rate("roi"),
+        "drawdown": rate("mdd"),
+        "win_rate": rate("winRate"),
+        "pnl": rate("pnl"),
+        "win_orders": count("winOrders"),
+        "total_orders": count("totalOrder"),
+    }
 
 
-async def fetch_leader_drawdowns(
+async def fetch_leader_performances(
     client: httpx.AsyncClient, portfolio_id: str
-) -> dict[str, float | None]:
+) -> dict[str, float | int | None]:
     values = await asyncio.gather(
-        *(fetch_leader_drawdown(client, portfolio_id, f"{days}D") for days in (7, 30, 90))
+        *(fetch_leader_performance(client, portfolio_id, f"{days}D") for days in (7, 30, 90))
     )
-    drawdowns: dict[str, float | None] = {}
-    for days, (drawdown, roi) in zip((7, 30, 90), values, strict=True):
-        drawdowns[f"{days}d"] = drawdown
-        drawdowns[f"roi_{days}d"] = roi
-    return drawdowns
-
+    performances: dict[str, float | int | None] = {}
+    for days, item in zip((7, 30, 90), values, strict=True):
+        performances[f"drawdown_{days}d"] = item["drawdown"]
+        performances[f"roi_{days}d"] = item["roi"]
+        performances[f"win_rate_{days}d"] = item["win_rate"]
+        performances[f"pnl_{days}d"] = item["pnl"]
+        performances[f"win_orders_{days}d"] = item["win_orders"]
+        performances[f"total_orders_{days}d"] = item["total_orders"]
+    return performances
 
 async def fetch_leader_finance(
     client: httpx.AsyncClient, portfolio_id: str
@@ -2698,32 +2659,36 @@ def notification_period_rows(
     return rows
 
 
-def notification_period_pnl(performance: dict[str, Any] | None) -> tuple[str, str]:
-    """(30D 已实现盈亏文本, 保守胜率文本)"""
+def notification_period_extra(performance: dict[str, Any] | None) -> tuple[str, str]:
+    """(30D 官方已实现盈亏文本, 30D 胜场文本)"""
     periods = performance.get("periods", {}) if performance else {}
     current = periods.get("30d", {})
-    pnl = current.get("pnl") or []
-    pnl_text = " · ".join(
-        f"{item.get('amount')} {item.get('asset')}"
-        for item in pnl
-        if isinstance(item, dict) and item.get("amount") is not None and item.get("asset")
-    ) or "暂无"
-    conservative_win_rate = current.get("conservative_win_rate")
-    conservative_text = (
-        f"{conservative_win_rate}%" if conservative_win_rate is not None else "暂无"
-    )
-    return pnl_text, conservative_text
-
+    pnl = current.get("pnl")
+    if pnl is None:
+        pnl_text = "暂无"
+    else:
+        amount = decimal_value(pnl)
+        if amount is None or not amount.is_finite():
+            pnl_text = "暂无"
+        else:
+            quantized = amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            pnl_text = f"{'+' if quantized > 0 else ''}{quantized:,} USDT"
+    win_orders = current.get("win_orders")
+    total_orders = current.get("total_orders")
+    if win_orders is None or total_orders is None:
+        orders_text = "暂无"
+    else:
+        orders_text = f"{win_orders}/{total_orders}"
+    return pnl_text, orders_text
 
 def notification_period_lines(performance: dict[str, Any] | None) -> list[str]:
     return [
         f"{label} 胜率: {win_rate} | 收益率: {roi} | 最大回撤: {drawdown}"
         for label, win_rate, roi, drawdown in notification_period_rows(performance)
     ] + [
-        f"30D 已实现盈亏：{pnl_text} · 保守胜率：{conservative_text}"
-        for pnl_text, conservative_text in [notification_period_pnl(performance)]
+        f"30D 已实现盈亏：{pnl_text} · 胜场：{orders_text}"
+        for pnl_text, orders_text in [notification_period_extra(performance)]
     ]
-
 
 def open_position_line(
     operation: dict[str, Any], action_key: str, margin_balance: Decimal | None
@@ -2816,7 +2781,7 @@ def format_operation_notification(
         realized_profit_text=notification_realized_profit(operation),
         finance_rows=finance_rows,
         period_rows=notification_period_rows(performance),
-        pnl_row=notification_period_pnl(performance),
+        pnl_row=notification_period_extra(performance),
     )
     return "\n".join(lines), "\n".join(html_lines), markdown_text
 
@@ -2862,9 +2827,9 @@ def markdown_operation_notification(
         f"> {label}　胜率 {value(win_rate)} ｜ 收益率 {value(roi)} ｜ 回撤 {drawdown}"
         for label, win_rate, roi, drawdown in period_rows
     ]
-    pnl_text, conservative_text = pnl_row
+    pnl_text, orders_text = pnl_row
     performance_quotes.append(
-        f"> 30D 已实现盈亏 {value(pnl_text)} · 保守胜率 {conservative_text}"
+        f"> 30D 已实现盈亏 {value(pnl_text)} · 胜场 **{orders_text}**"
     )
     sections = [
         f"### {alert_prefix}{action} · {symbol}",
@@ -3393,20 +3358,20 @@ async def fetch_metadata_with_retry(
 
 async def refresh_monitor_drawdowns(app: FastAPI, monitor: dict[str, Any]) -> None:
     try:
-        drawdowns = await fetch_metadata_with_retry(
+        performances = await fetch_metadata_with_retry(
             app,
             monitor,
-            "Binance 回撤查询",
+            "Binance 带单表现",
             lambda: app.state.drawdown_fetcher(app.state.http, monitor["portfolio_id"]),
         )
     except Exception as error:
-        message = f"Binance 回撤查询失败（已重试 {METADATA_FETCH_ATTEMPTS} 次）: {safe_error(error)}"
+        message = f"Binance 带单表现查询失败（已重试 {METADATA_FETCH_ATTEMPTS} 次）: {safe_error(error)}"
         is_new_error = app.state.store.set_monitor_drawdown_error(monitor["id"], message)
-        app.state.store.log_event(monitor["id"], "error", "Binance 回撤查询", message)
+        app.state.store.log_event(monitor["id"], "error", "Binance 带单表现", message)
         if is_new_error:
-            await send_error_alert(app, monitor, "Binance 回撤查询", message)
+            await send_error_alert(app, monitor, "Binance 带单表现", message)
         return
-    app.state.store.update_monitor_drawdowns(monitor["id"], drawdowns)
+    app.state.store.update_monitor_performance(monitor["id"], performances)
 
 
 async def refresh_monitor_finance(app: FastAPI, monitor: dict[str, Any]) -> None:
@@ -3805,7 +3770,7 @@ def create_app(
     trade_alerts_enabled: bool | None = None,
     position_history_fetcher: PositionHistoryFetcher = fetch_binance_position_history,
     leader_name_fetcher: LeaderNameFetcher = fetch_leader_name,
-    drawdown_fetcher: DrawdownFetcher = fetch_leader_drawdowns,
+    drawdown_fetcher: DrawdownFetcher = fetch_leader_performances,
     leader_finance_fetcher: LeaderFinanceFetcher = fetch_leader_finance,
     symbol_precision_fetcher: SymbolPrecisionFetcher = fetch_binance_symbol_precisions,
 ) -> FastAPI:

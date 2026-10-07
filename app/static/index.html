@@ -551,7 +551,7 @@
       $("#overview-performance").innerHTML = qualified.length ? qualified.slice(0, 8).map((item) => {
         const week = item.periods["7d"];
         const month = item.periods["30d"];
-        return `<div class="metric-line">${monitorLinkHtml(item.monitor_id, item.name)}<div><strong>7D 胜率 ${week.win_rate === null ? "暂无" : `${week.win_rate}%`} · 最大回撤 ${week.max_drawdown === null ? "暂无" : `${week.max_drawdown}%`}</strong><div class="small">30D 已实现盈亏：${escapeHtml(formatPnl(month.pnl))} · 保守胜率：${month.conservative_win_rate}%</div></div></div>`;
+        return `<div class="metric-line">${monitorLinkHtml(item.monitor_id, item.name)}<div><strong>7D 胜率 ${week.win_rate === null ? "暂无" : `${week.win_rate}%`} · 最大回撤 ${week.max_drawdown === null ? "暂无" : `${week.max_drawdown}%`}</strong><div class="small">30D 已实现盈亏：${escapeHtml(formatPnl(month.pnl))} · 胜场：${month.win_orders === null ? "暂无" : `${month.win_orders}/${month.total_orders}`}</div></div></div>`;
       }).join("") : '<div class="empty">最近 30 天暂无已结算盈亏记录。</div>';
 
       $("#overview-operation-body").innerHTML = data.operations.length ? data.operations.slice(0, 7).map((operation) => `<tr><td class="small">${formatTime(operation.occurred_at)}</td><td><div class="table-main">${monitorLinkHtml(operation.monitor_id, operation.monitor_name)}</div><div class="table-sub">${escapeHtml(operation.monitor_note || "-")}</div></td><td class="table-main">${symbolLinkHtml(operation.symbol)}</td><td>${actionHtml(operation)}</td><td>${formatAmount(operation.price, operation.price_precision)} ${escapeHtml(operation.quote_asset)}</td><td>${formatAmount(operation.qty, operation.quantity_precision)} ${escapeHtml(operation.base_asset)}</td><td>${operation.reference_leverage ? `${escapeHtml(operation.reference_leverage)}x` : "-"}</td><td>${pnlHtml(operation)}</td><td>${operationHistoryLinkHtml(operation)}</td></tr>`).join("") : '<tr><td colspan="9" class="empty">暂无操作记录</td></tr>';
@@ -559,9 +559,9 @@
 
     function monitorPerformanceHtml(item) {
       if (!item) return "";
-      const period = (label, value) => `<div class="period"><span>${label}</span><strong>${value.win_rate === null ? "暂无" : `${value.win_rate}%`}</strong><small>${value.wins} 胜 / ${value.losses} 负</small><small>最大回撤 ${value.max_drawdown === null ? "暂无" : `${value.max_drawdown}%`}</small></div>`;
+      const period = (label, value) => `<div class="period"><span>${label}</span><strong>${value.win_rate === null ? "暂无" : `${value.win_rate}%`}</strong><small>收益率 ${value.roi === null ? "暂无" : `${value.roi}%`}</small><small>最大回撤 ${value.max_drawdown === null ? "暂无" : `${value.max_drawdown}%`}</small></div>`;
       const current = item.periods["30d"];
-      return `<div class="monitor-performance"><div class="monitor-performance-title"><span>项目表现</span><span>已存 ${item.stored_records} 条 · 30D ${current.sample_reliability}可信度</span></div><div class="period-grid">${period("7D", item.periods["7d"])}${period("30D", current)}${period("90D", item.periods["90d"])}</div>${current.win_rate === null ? "" : `<div class="small">30D 已实现盈亏：${escapeHtml(formatPnl(current.pnl))} · 保守胜率：${current.conservative_win_rate}%</div>`}</div>`;
+      return `<div class="monitor-performance"><div class="monitor-performance-title"><span>项目表现</span><span>已存 ${item.stored_records} 条 · 更新于 ${item.drawdown_updated_at ? formatTime(item.drawdown_updated_at) : "-"}</span></div><div class="period-grid">${period("7D", item.periods["7d"])}${period("30D", current)}${period("90D", item.periods["90d"])}</div>${current.win_rate === null ? "" : `<div class="small">30D 已实现盈亏：${escapeHtml(formatPnl(current.pnl))} · 胜场：${current.win_orders}/${current.total_orders}</div>`}</div>`;
     }
 
     function renderMonitorList(monitors, performanceItems) {
@@ -722,8 +722,11 @@
       $("#operations-timeline").innerHTML = operations.length ? operations.map((operation) => `<article class="operation-event"><time>${timelineTime(operation.occurred_at)}</time><div class="operation-detail">${actionHtml(operation)}<p class="operation-summary">${operationSummary(operation)}</p><div class="operation-monitor">${escapeHtml(operation.monitor_name)} · 参考杠杆 ${operation.reference_leverage ? `${escapeHtml(operation.reference_leverage)}x` : "暂无"} · ${notificationTag(operation.notification_status)}</div></div></article>`).join("") : '<div class="empty">当前筛选条件下没有操作记录</div>';
     }
 
-    function formatPnl(items) {
-      return items.length ? items.map((item) => `${item.amount} ${item.asset}`).join(" · ") : "-";
+    function formatPnl(value) {
+      if (value === null || value === undefined) return "暂无";
+      const num = Number(value);
+      if (!Number.isFinite(num)) return "暂无";
+      return `${num > 0 ? "+" : ""}${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
     }
 
     function renderNotifications(attempts) {
