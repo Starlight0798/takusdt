@@ -46,6 +46,7 @@ from app.main import (
     monitor_poll_offset_seconds,
     next_pool_rebuild_streak,
     notification_operation_details,
+    format_push_delay,
     operation_action,
     poll_all,
     poll_monitor,
@@ -1455,6 +1456,31 @@ class MainTests(unittest.TestCase):
         self.assertIn("XAUUSDT 开空", details)
         self.assertIn("数量 0.632 XAU", details)
         self.assertIn("均价 4667.13 USDT", details)
+
+    def test_operation_notification_includes_push_delay(self) -> None:
+        operation = {
+            "occurred_at": 1000,
+            "side": "SELL",
+            "position_side": "LONG",
+            "realized_profit": "1",
+            "qty": "1",
+            "base_asset": "ETH",
+            "symbol": "ETHUSDT",
+            "price": "10",
+            "quantity": "10",
+        }
+        text, html_text, markdown_text = format_operation_notification(
+            {"name": "Leader", "url": SOURCE_URL}, operation, None, now_ms=126_000
+        )
+        self.assertIn("（距推送约 2 分 05 秒）", text)
+        self.assertIn("（距推送约 2 分 05 秒）", html_text)
+        self.assertIn("🕒 1970-01-01 08:00:01（距推送约 2 分 05 秒）", markdown_text)
+
+        self.assertEqual(format_push_delay(0), "暂无")
+        self.assertEqual(format_push_delay(None), "暂无")
+        self.assertEqual(format_push_delay(1000, now_ms=1500), "0 秒")
+        self.assertEqual(format_push_delay(1000, now_ms=3_661_000), "1 小时 1 分 00 秒")
+        self.assertEqual(format_push_delay(2000, now_ms=1000), "0 秒")
 
     def test_operation_notification_pnl_links_and_performance(self) -> None:
         operation = {

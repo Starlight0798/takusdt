@@ -2552,6 +2552,25 @@ def format_operation_time(value: int) -> str:
     )
 
 
+def format_push_delay(occurred_at_ms: Any, now_ms: int | None = None) -> str:
+    """推送时刻与成交时刻的时间差（用户可见的端到端延迟）。"""
+    try:
+        occurred = int(occurred_at_ms)
+    except (TypeError, ValueError):
+        return "暂无"
+    if occurred <= 0:
+        return "暂无"
+    current = now_ms if now_ms is not None else int(time.time() * 1000)
+    seconds = max(0, (current - occurred) // 1000)
+    minutes, remaining = divmod(seconds, 60)
+    if minutes >= 60:
+        hours, minutes = divmod(minutes, 60)
+        return f"{hours} 小时 {minutes} 分 {remaining:02d} 秒"
+    if minutes:
+        return f"{minutes} 分 {remaining:02d} 秒"
+    return f"{remaining} 秒"
+
+
 
 
 def dashboard_monitor_url(monitor: dict[str, Any]) -> str | None:
@@ -2713,10 +2732,12 @@ def format_operation_notification(
     performance: dict[str, Any] | None,
     *,
     trade_alert: bool = False,
+    now_ms: int | None = None,
 ) -> tuple[str, str, str]:
-    action = notification_action(operation)
     amount = f"{operation['qty']} {operation['base_asset']}".strip()
     symbol = str(operation["symbol"])
+    delay_text = format_push_delay(operation["occurred_at"], now_ms)
+    action = notification_action(operation)
     margin_balance = decimal_value(monitor.get("margin_balance"))
     if not margin_balance.is_finite() or margin_balance <= 0:
         margin_balance = None
@@ -2738,7 +2759,7 @@ def format_operation_notification(
         heading,
         *([source_note] if trade_alert else []),
         f"带单人: {monitor['name']}",
-        f"时间: {format_operation_time(operation['occurred_at'])}",
+        f"时间: {format_operation_time(operation['occurred_at'])}（距推送约 {delay_text}）",
         f"操作: {action}",
         f"合约: {symbol}",
         f"数量: {amount}",
@@ -2754,7 +2775,7 @@ def format_operation_notification(
         f"<b>{heading}</b>",
         *([html.escape(source_note)] if trade_alert else []),
         f"带单人: {html.escape(str(monitor['name']))}",
-        f"时间: {html.escape(format_operation_time(operation['occurred_at']))}",
+        f"时间: {html.escape(format_operation_time(operation['occurred_at']))}（距推送约 {html.escape(delay_text)}）",
         f"操作: {html.escape(action)}",
         f"合约: {html.escape(symbol)}",
         f"数量: {html.escape(amount)}",
@@ -2771,7 +2792,7 @@ def format_operation_notification(
         name=str(monitor["name"]),
         action=action,
         symbol=symbol,
-        time_text=format_operation_time(operation["occurred_at"]),
+        time_text=f"{format_operation_time(operation['occurred_at'])}（距推送约 {delay_text}）",
         amount=amount,
         price_text=format_md_amount(operation["price"]),
         total_text=format_md_amount(operation["quantity"]),
