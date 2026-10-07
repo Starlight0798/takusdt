@@ -1646,6 +1646,8 @@ class Store:
             if not monitor:
                 return []
             monitors = {monitor_id: monitor}
+        if not monitors:
+            return []
         stored_counts: dict[int, int] = {}
         with self.lock:
             id_list = ",".join(str(key) for key in monitors)
@@ -2829,7 +2831,7 @@ def markdown_operation_notification(
     ]
     pnl_text, orders_text = pnl_row
     performance_quotes.append(
-        f"> 30D 已实现盈亏 {value(pnl_text)} · 胜场 **{orders_text}**"
+        f"> 30D 已实现盈亏 {value(pnl_text)} · 胜场 {value(orders_text)}"
     )
     sections = [
         f"### {alert_prefix}{action} · {symbol}",
@@ -3371,6 +3373,13 @@ async def refresh_monitor_drawdowns(app: FastAPI, monitor: dict[str, Any]) -> No
         if is_new_error:
             await send_error_alert(app, monitor, "Binance 带单表现", message)
         return
+    if all(value is None for value in performances.values()):
+        app.state.store.log_event(
+            monitor["id"],
+            "warning",
+            "Binance 带单表现",
+            "官方表现数据全部为空（可能为新建带单员或接口字段变更），请核对币安跟单页面",
+        )
     app.state.store.update_monitor_performance(monitor["id"], performances)
 
 
